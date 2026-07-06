@@ -3,6 +3,8 @@
 use nyarix_core::NodeId;
 use nyarix_packet::Packet;
 use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
+use tokio_util::sync::PollSender;
 
 use crate::condition::Condition;
 
@@ -111,6 +113,24 @@ impl Edge {
     pub async fn send(&self, packet: Packet) -> Result<(), mpsc::error::SendError<Packet>> {
         self.queue.send(packet).await
     }
+
+    /// A `Sink<Packet>` for this edge's queue (see issue #34), for code
+    /// that wants to drive packet flow through the `futures`-style
+    /// `Stream`/`Sink` combinators instead of calling [`Self::send`]
+    /// directly.
+    #[must_use]
+    pub fn sink(&self) -> PollSender<Packet> {
+        PollSender::new(self.queue.clone())
+    }
+}
+
+/// Wrap the `Receiver` half returned by [`Edge::new`] as a
+/// `Stream<Item = Packet>` (see issue #34), for use at a node's input with
+/// `futures`/`tokio-stream`-style combinators instead of calling
+/// `Receiver::recv` directly.
+#[must_use]
+pub fn packet_stream(receiver: mpsc::Receiver<Packet>) -> ReceiverStream<Packet> {
+    ReceiverStream::new(receiver)
 }
 
 #[cfg(test)]
@@ -151,6 +171,26 @@ mod tests {
 
         edge.send(pkt).await.unwrap();
         let received = rx.recv().await.unwrap();
+        assert_eq!(received.id(), id);
+    }
+
+    #[tokio::test]
+    async fn sink_and_stream_wrappers_carry_a_packet() {
+        use tokio_stream::StreamExt;
+
+        let (edge, rx) = Edge::new(NodeId::new(), NodeId::new(), EdgeType::Sequential, None, 8);
+        let mut stream = packet_stream(rx);
+        let mut sink = edge.sink();
+
+        let pkt = Packet::new(b"data".as_slice());
+        let id = pkt.id();
+
+        std::future::poll_fn(|cx| sink.poll_reserve(cx))
+            .await
+            .unwrap();
+        sink.send_item(pkt).unwrap();
+
+        let received = stream.next().await.unwrap();
         assert_eq!(received.id(), id);
     }
 
