@@ -18,7 +18,7 @@ version = "0.1.0"
 edition = "2024"
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/F000NKKK/nyarix-runtime"
-rust-version = "1.94"
+rust-version = "1.93"
 
 [workspace.dependencies]
 # --- Internal crates ---
