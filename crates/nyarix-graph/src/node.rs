@@ -191,6 +191,11 @@ impl GraphNode {
     /// to [`NodeState::Stopped`] (see #43's execution loop, which calls
     /// this on every node after the last `process`).
     ///
+    /// Also cancels any event subscriptions the module registered on
+    /// `ctx` via `RuntimeContext::on_event` (#49) — regardless of
+    /// whether `shutdown` itself succeeded, so a failing module doesn't
+    /// leak subscriber tasks.
+    ///
     /// # Panics
     /// Same condition as [`Self::process`] — the module `Arc` must be
     /// uniquely owned.
@@ -202,6 +207,7 @@ impl GraphNode {
         let result = Arc::get_mut(&mut self.module)
             .expect("node module Arc must be uniquely owned to shut down")
             .shutdown(ctx);
+        ctx.cancel_subscriptions();
         if result.is_ok() {
             self.set_state(NodeState::Stopped);
         }
