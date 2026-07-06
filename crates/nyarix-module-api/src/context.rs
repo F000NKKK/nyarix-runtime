@@ -197,6 +197,7 @@ impl fmt::Debug for RuntimeContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
     use support::StubModule;
 
     mod support {
@@ -265,4 +266,50 @@ mod tests {
         let ctx = RuntimeContext::empty();
         ctx.emit_event(Event::new("test_event"));
     }
+
+    #[test]
+    fn on_event_returns_false_without_a_bus() {
+        let ctx = RuntimeContext::empty();
+        assert!(!ctx.on_event(EventFilter::All, |_| {}));
+    }
+
+    #[tokio::test]
+    async fn emit_event_reaches_a_subscriber_through_the_attached_bus() {
+        let bus = Arc::new(EventBus::default());
+        let ctx = RuntimeContext::with_event_bus(ModuleConfig::empty(), HashMap::new(), bus);
+
+        let received: Arc<Mutex<Vec<Event>>> = Arc::new(Mutex::new(Vec::new()));
+        let received_clone = Arc::clone(&received);
+        let subscribed = ctx.on_event(EventFilter::All, move |event| {
+            received_clone.lock().unwrap().push(event);
+        });
+        assert!(subscribed);
+
+        ctx.emit_event(Event::new("rekey_started"));
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        assert_eq!(received.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn cancel_subscriptions_stops_delivery() {
+        let bus = Arc::new(EventBus::default());
+        let ctx = RuntimeContext::with_event_bus(ModuleConfig::empty(), HashMap::new(), bus);
+
+        let received: Arc<Mutex<Vec<Event>>> = Arc::new(Mutex::new(Vec::new()));
+        let received_clone = Arc::clone(&received);
+        ctx.on_event(EventFilter::All, move |event| {
+            received_clone.lock().unwrap().push(event);
+        });
+
+        ctx.cancel_subscriptions();
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        ctx.emit_event(Event::new("after_cancel"));
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        assert!(received.lock().unwrap().is_empty());
+    }
+
+    use std::sync::Mutex;
 }
