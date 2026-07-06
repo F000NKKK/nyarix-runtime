@@ -18,20 +18,93 @@ pub struct PackageManifest {
     /// The `[package]` table.
     pub package: PackageInfo,
     /// The `[dependencies]` table: other package names mapped to a
-    /// semver requirement on their version (e.g. `"^0.1"`).
+    /// [`DependencySpec`] (a semver requirement, optionally marked
+    /// `optional = true`, #56).
     ///
     /// This is the manifest's declared *version* constraint on each
     /// dependency — matching it against what's actually installed, and
     /// resolving the dependency graph as a whole, is the Dependency
     /// resolver's job (#53), not this schema's.
     #[serde(default)]
-    pub dependencies: HashMap<String, VersionReq>,
+    pub dependencies: HashMap<String, DependencySpec>,
     /// The `[capabilities]` table.
     #[serde(default)]
     pub capabilities: Capabilities,
     /// The `[platforms]` table.
     #[serde(default)]
     pub platforms: Platforms,
+}
+
+/// A single `[dependencies]` entry: a semver requirement, optionally
+/// marked optional (#56).
+///
+/// Accepts two TOML forms:
+/// ```toml
+/// [dependencies]
+/// nyarix-crypto-core = "^0.1"                                 # required, shorthand
+/// nyarix-metrics-optional = { version = "^0.2", optional = true }
+/// ```
+/// A bare string is equivalent to a table with `optional = false`.
+/// Serializing round-trips back to whichever form is simplest: a bare
+/// string when not optional, a table when it is.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DependencySpec {
+    /// The semver requirement on the dependency's version.
+    pub version_req: VersionReq,
+    /// If `true`, the Dependency resolver (#53) not finding a version
+    /// satisfying this requirement is not an error — see #56.
+    pub optional: bool,
+}
+
+impl<'de> Deserialize<'de> for DependencySpec {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Shorthand(VersionReq),
+            Detailed {
+                version: VersionReq,
+                #[serde(default)]
+                optional: bool,
+            },
+        }
+
+        Ok(match Raw::deserialize(deserializer)? {
+            Raw::Shorthand(version_req) => Self {
+                version_req,
+                optional: false,
+            },
+            Raw::Detailed { version, optional } => Self {
+                version_req: version,
+                optional,
+            },
+        })
+    }
+}
+
+impl Serialize for DependencySpec {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        if self.optional {
+            #[derive(Serialize)]
+            struct Detailed<'a> {
+                version: &'a VersionReq,
+                optional: bool,
+            }
+            Detailed {
+                version: &self.version_req,
+                optional: true,
+            }
+            .serialize(serializer)
+        } else {
+            self.version_req.serialize(serializer)
+        }
+    }
 }
 
 /// The `[package]` table: identity and versioning metadata.
