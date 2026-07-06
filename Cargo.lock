@@ -203,7 +203,9 @@ version = "0.1.0"
 dependencies = [
  "nyarix-core",
  "nyarix-error",
+ "nyarix-module-api",
  "nyarix-packet",
+ "semver",
  "tracing",
 ]
 

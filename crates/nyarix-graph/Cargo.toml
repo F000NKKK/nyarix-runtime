@@ -13,5 +13,8 @@ nyarix-packet.workspace = true
 nyarix-module-api.workspace = true
 tracing.workspace = true
 
+[dev-dependencies]
+semver.workspace = true
+
 [lints]
 workspace = true
