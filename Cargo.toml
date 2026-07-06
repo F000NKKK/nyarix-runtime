@@ -50,7 +50,7 @@ smallvec = "1"
 strum = { version = "0.28", features = ["derive"] }
 bitflags = { version = "2", features = ["serde"] }
 chrono = { version = "0.4", features = ["serde"] }
-bincode = "3"
+bincode = { version = "2", features = ["serde"] }
 semver = { version = "1", features = ["serde"] }
 rayon = "1"
 tar = "0.4"
