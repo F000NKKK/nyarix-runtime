@@ -22,4 +22,4 @@ pub use metadata::Metadata;
 pub use packet::{DecodeError, Packet};
 pub use payload::Payload;
 pub use pool::PacketPool;
-pub use tags::Tag;
+pub use tags::{Tag, Tags};
