@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 
 use nyarix_error::PackageError;
-use nyarix_module_api::{ApiVersion, Capability, ModuleType, Platform};
+use nyarix_module_api::{ApiVersion, Capability, ModuleMetadata, ModuleType, Platform};
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 
@@ -110,15 +110,68 @@ pub struct Platforms {
 impl PackageManifest {
     /// Parse a `manifest.toml` document.
     ///
+    /// Serde's own deserialization already enforces "required field
+    /// present" (missing `name`/`version`/`module_type`/`api_version`/
+    /// `author`/`description` fails) and "valid semver" (`version` and
+    /// every `[dependencies]` requirement fail to parse if malformed) —
+    /// see this method's tests. [`Self::validate`] covers what serde
+    /// can't: constraints on an individual field's *content*, like a
+    /// present but empty `name`.
+    ///
     /// # Errors
-    /// Returns [`PackageError::InvalidManifest`] if `input` isn't valid
-    /// TOML, or doesn't match this schema (missing required fields,
-    /// wrong types, an unparseable `version`/`api_version`/dependency
-    /// requirement, ...).
+    /// Returns [`PackageError::InvalidManifest`] with a human-readable
+    /// reason if `input` isn't valid TOML, doesn't match this schema, or
+    /// fails [`Self::validate`].
     pub fn from_toml(input: &str) -> Result<Self, PackageError> {
-        toml::from_str(input).map_err(|source| PackageError::InvalidManifest {
+        let manifest: Self = toml::from_str(input).map_err(|source| PackageError::InvalidManifest {
             reason: source.to_string(),
-        })
+        })?;
+        manifest.validate()?;
+        Ok(manifest)
+    }
+
+    /// Validate constraints beyond what deserialization itself enforces.
+    ///
+    /// # Errors
+    /// Returns [`PackageError::InvalidManifest`] if `package.name` is
+    /// empty.
+    pub fn validate(&self) -> Result<(), PackageError> {
+        if self.package.name.trim().is_empty() {
+            return Err(PackageError::InvalidManifest {
+                reason: "package.name must not be empty".to_string(),
+            });
+        }
+        Ok(())
+    }
+
+    /// Build the [`ModuleMetadata`] (#20) this manifest describes.
+    ///
+    /// Fields with a direct equivalent are copied across (`name`,
+    /// `version`, `module_type`, `api_version`, `author`, `description`,
+    /// `capabilities.required` → `required_capabilities`,
+    /// `capabilities.provided` → `provided_tags`,
+    /// `platforms.supported` → `platforms`). `resource_limits` has no
+    /// equivalent section in this schema, so it defaults to
+    /// [`nyarix_module_api::ResourceLimits::unbounded`] — the same
+    /// default `ModuleMetadata::new` itself uses. `provided_capabilities`
+    /// (the closed [`Capability`] enum) is left empty: nothing in this
+    /// schema maps to it — see [`ModuleMetadata::provided_tags`]'s doc
+    /// comment for why `capabilities.provided` becomes `provided_tags`
+    /// instead (#104).
+    #[must_use]
+    pub fn to_module_metadata(&self) -> ModuleMetadata {
+        let mut metadata = ModuleMetadata::new(
+            self.package.name.clone(),
+            self.package.version.clone(),
+            self.package.module_type,
+        )
+        .with_required_capabilities(self.capabilities.required.clone())
+        .with_provided_tags(self.capabilities.provided.clone())
+        .with_platforms(self.platforms.supported.clone());
+        metadata.api_version = self.package.api_version;
+        metadata.author.clone_from(&self.package.author);
+        metadata.description.clone_from(&self.package.description);
+        metadata
     }
 }
 
