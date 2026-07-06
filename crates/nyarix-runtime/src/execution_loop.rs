@@ -368,4 +368,56 @@ mod tests {
         loop_handle.await.unwrap().unwrap();
         assert_eq!(shut_down.load(Ordering::SeqCst), 1);
     }
+
+    #[tokio::test]
+    async fn shutdown_drains_already_buffered_packets() {
+        let initialized = Arc::new(AtomicUsize::new(0));
+        let shut_down = Arc::new(AtomicUsize::new(0));
+
+        let mut graph = FlowGraph::new();
+        let source_node = tracked_node("source", NodeType::Source, &initialized, &shut_down);
+        let sink_node = tracked_node("sink", NodeType::Sink, &initialized, &shut_down);
+        let (entry, exit) = (source_node.id(), sink_node.id());
+        graph.add_node(source_node);
+        graph.add_node(sink_node);
+        let (edge, _rx) = Edge::new(entry, exit, EdgeType::Sequential, None, 8);
+        graph.connect(edge).unwrap();
+
+        let graph = Arc::new(Mutex::new(graph));
+        // Enough capacity that both sends below land in the channel
+        // before the loop has a chance to drain either of them.
+        let (source_tx, source_rx) = mpsc::channel(8);
+        let (sink_tx, mut sink_rx) = mpsc::channel(8);
+        let shutdown = CancellationToken::new();
+
+        let pkt1 = Packet::new(b"first".as_slice());
+        let pkt2 = Packet::new(b"second".as_slice());
+        let (id1, id2) = (pkt1.id(), pkt2.id());
+        source_tx.send(pkt1).await.unwrap();
+        source_tx.send(pkt2).await.unwrap();
+
+        // Cancel immediately: both packets are already buffered in
+        // `source` at this point, so they must come out through the
+        // drain step (step 2), not the main loop.
+        shutdown.cancel();
+
+        run_with_timeout(
+            graph,
+            entry,
+            RuntimeContext::empty(),
+            source_rx,
+            sink_tx,
+            shutdown,
+            Duration::from_secs(5),
+        )
+        .await
+        .unwrap();
+
+        let mut received = Vec::new();
+        while let Ok(packet) = sink_rx.try_recv() {
+            received.push(packet.id());
+        }
+        assert_eq!(received, vec![id1, id2]);
+        assert_eq!(shut_down.load(Ordering::SeqCst), 2);
+    }
 }
