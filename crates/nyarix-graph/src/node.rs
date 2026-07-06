@@ -329,7 +329,8 @@ mod tests {
         let mut node = GraphNode::new(NodeId::new(), module, NodeConfig::default());
 
         let bus = StdArc::new(EventBus::default());
-        let ctx = RuntimeContext::with_event_bus(ModuleConfig::empty(), HashMap::new(), bus.clone());
+        let ctx =
+            RuntimeContext::with_event_bus(ModuleConfig::empty(), HashMap::new(), bus.clone());
 
         let received: StdArc<Mutex<Vec<Event>>> = StdArc::new(Mutex::new(Vec::new()));
         let received_clone = StdArc::clone(&received);

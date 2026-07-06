@@ -173,8 +173,7 @@ fn run_branch(
     mut current: NodeId,
     mut packet: Packet,
     semaphore: std::sync::Arc<tokio::sync::Semaphore>,
-) -> std::pin::Pin<Box<dyn Future<Output = Result<Vec<Packet>, ExecutionError>> + Send>>
-{
+) -> std::pin::Pin<Box<dyn Future<Output = Result<Vec<Packet>, ExecutionError>> + Send>> {
     Box::pin(async move {
         loop {
             match walk_node(&graph, current, packet).await? {
