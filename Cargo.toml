@@ -14,7 +14,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/F000NKKK/nyarix-runtime"
@@ -37,7 +37,7 @@ bytes = "1"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-toml = "0.8"
+toml = "1"
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
 tokio-util = "0.7"
@@ -47,19 +47,19 @@ uuid = { version = "1", features = ["v4", "v7", "serde"] }
 parking_lot = "0.12"
 dashmap = "6"
 smallvec = "1"
-strum = { version = "0.27", features = ["derive"] }
+strum = { version = "0.28", features = ["derive"] }
 bitflags = { version = "2", features = ["serde"] }
 chrono = { version = "0.4", features = ["serde"] }
-bincode = "1"
+bincode = "3"
 semver = { version = "1", features = ["serde"] }
 rayon = "1"
 tar = "0.4"
 zstd = "0.13"
 
 # --- Dev dependencies ---
-criterion = "0.5"
+criterion = "0.8"
 proptest = "1"
-rstest = "0.24"
+rstest = "0.26"
 
 [workspace.lints.rust]
 unsafe_code = "deny"
