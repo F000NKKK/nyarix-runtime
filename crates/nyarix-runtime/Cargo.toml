@@ -15,6 +15,7 @@ nyarix-graph.workspace = true
 nyarix-module-api.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+thiserror.workspace = true
 
 [lints]
 workspace = true
