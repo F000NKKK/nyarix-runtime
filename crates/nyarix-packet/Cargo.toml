@@ -1,0 +1,19 @@
+[package]
+name = "nyarix-packet"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+nyarix-core.workspace = true
+nyarix-error.workspace = true
+bytes.workspace = true
+smallvec.workspace = true
+bitflags.workspace = true
+tracing.workspace = true
+parking_lot.workspace = true
+
+[lints]
+workspace = true

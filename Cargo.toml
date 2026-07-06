@@ -1,0 +1,66 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/nyarix-core",
+    "crates/nyarix-error",
+    "crates/nyarix-config",
+    "crates/nyarix-packet",
+    "crates/nyarix-graph",
+    "crates/nyarix-module-api",
+    "crates/nyarix-runtime",
+    "apps/runtime-test",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/F000NKKK/nyarix-runtime"
+rust-version = "1.80"
+
+[workspace.dependencies]
+# --- Internal crates ---
+nyarix-core = { path = "crates/nyarix-core" }
+nyarix-error = { path = "crates/nyarix-error" }
+nyarix-config = { path = "crates/nyarix-config" }
+nyarix-packet = { path = "crates/nyarix-packet" }
+nyarix-graph = { path = "crates/nyarix-graph" }
+nyarix-module-api = { path = "crates/nyarix-module-api" }
+nyarix-runtime = { path = "crates/nyarix-runtime" }
+
+# --- External dependencies ---
+bytes = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
+parking_lot = "0.12"
+dashmap = "6"
+smallvec = "1"
+strum = { version = "0.27", features = ["derive"] }
+bitflags = "2"
+chrono = { version = "0.4", features = ["serde"] }
+
+# --- Dev dependencies ---
+criterion = "0.5"
+proptest = "1"
+rstest = "0.24"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+unused_qualifications = "warn"
+
+[workspace.lints.clippy]
+all = "warn"
+pedantic = "warn"
+nursery = "warn"
+cargo = "warn"
+# Too noisy for early development
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
