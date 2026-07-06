@@ -10,15 +10,19 @@
 //! **Scope note:** this crate defines the format's *structural contract*
 //! — the format version and which top-level members are required vs.
 //! optional, plus [`validate_layout`] to check a candidate archive
-//! against that contract. It deliberately does **not** implement:
+//! against that contract, and [`manifest::PackageManifest`] for parsing
+//! `manifest.toml` itself (#59). It deliberately does **not** implement:
 //! - actually reading/writing `tar`+`zstd` archives (#60, Package
 //!   pack/unpack) — [`validate_layout`] takes a plain list of member
 //!   paths precisely so it doesn't need a real archive reader yet;
-//! - `manifest.toml` parsing (#59 defines its schema);
 //! - Ed25519 signing/verification (#61/#62).
 //!
-//! Those all build on top of the contract this crate defines, once each
-//! is its own issue's turn.
+//! Those build on top of the contract this crate defines, once each is
+//! its own issue's turn.
+
+pub mod manifest;
+
+pub use manifest::{Capabilities, PackageInfo, PackageManifest, Platforms};
 
 use nyarix_error::PackageError;
 

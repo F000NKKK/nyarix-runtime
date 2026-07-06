@@ -271,6 +271,10 @@ name = "nyarix-package"
 version = "0.1.0"
 dependencies = [
  "nyarix-error",
+ "nyarix-module-api",
+ "semver",
+ "serde",
+ "toml",
 ]
 
 [[package]]
