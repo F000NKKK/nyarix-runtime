@@ -66,6 +66,12 @@ impl Packet {
         self.inner.id
     }
 
+    /// Assign a new unique identifier to this packet.
+    /// This clones the inner `Arc` if there are other references.
+    pub fn reset_id(&mut self) {
+        Arc::make_mut(&mut self.inner).id = PacketId::new();
+    }
+
     /// Get a reference to the payload.
     #[must_use]
     pub fn payload(&self) -> &Payload {

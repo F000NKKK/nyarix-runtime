@@ -43,6 +43,8 @@ impl PacketPool {
     pub fn release(&self, mut packet: Packet) {
         // Clear payload to avoid holding large allocations
         packet.set_payload(crate::payload::Payload::empty());
+        // Give the recycled packet a fresh identity
+        packet.reset_id();
 
         let mut pool = self.inner.lock();
         if pool.len() < self.max_size {

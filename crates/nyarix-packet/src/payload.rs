@@ -236,10 +236,9 @@ mod tests {
 
     #[test]
     fn builder_constructs_payload() {
-        let payload = Payload::builder()
-            .extend(b"hello ")
-            .extend(b"world")
-            .build();
+        let mut builder = Payload::builder();
+        builder.extend(b"hello ").extend(b"world");
+        let payload = builder.build();
         assert_eq!(payload.as_bytes(), b"hello world");
     }
 
