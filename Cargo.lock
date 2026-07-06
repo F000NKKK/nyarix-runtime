@@ -295,6 +295,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "nyarix-loader"
+version = "0.1.0"
+dependencies = [
+ "nyarix-error",
+ "nyarix-package",
+ "semver",
+]
+
+[[package]]
 name = "nyarix-module-api"
 version = "0.1.0"
 dependencies = [
