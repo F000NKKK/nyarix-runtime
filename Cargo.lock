@@ -206,6 +206,7 @@ dependencies = [
  "nyarix-module-api",
  "nyarix-packet",
  "semver",
+ "thiserror",
  "tokio",
  "tracing",
 ]

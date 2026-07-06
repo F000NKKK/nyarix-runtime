@@ -187,6 +187,17 @@ impl FlowGraph {
         self.nodes.get(&id)
     }
 
+    /// Look up a node by id, mutably.
+    #[must_use]
+    pub fn node_mut(&mut self, id: NodeId) -> Option<&mut GraphNode> {
+        self.nodes.get_mut(&id)
+    }
+
+    /// Iterate the edges whose source is `id`.
+    pub fn edges_from(&self, id: NodeId) -> impl Iterator<Item = &Edge> {
+        self.edges.iter().filter(move |edge| edge.from() == id)
+    }
+
     /// Number of nodes currently in the graph.
     #[must_use]
     pub fn node_count(&self) -> usize {

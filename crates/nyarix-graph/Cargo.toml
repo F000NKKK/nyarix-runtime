@@ -13,6 +13,7 @@ nyarix-packet.workspace = true
 nyarix-module-api.workspace = true
 tracing.workspace = true
 tokio.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 semver.workspace = true

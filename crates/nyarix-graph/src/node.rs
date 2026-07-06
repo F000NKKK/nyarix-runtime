@@ -126,6 +126,26 @@ impl GraphNode {
     pub const fn metrics(&self) -> NodeMetrics {
         self.metrics
     }
+
+    /// Run this node's module on a packet (see #32).
+    ///
+    /// # Panics
+    /// Panics if the module `Arc` has more than one owner — e.g. it was
+    /// also resolved as another node's dependency via
+    /// `RuntimeContext::resolve_dependency` (#18). `Module::process`
+    /// needs exclusive access, and there isn't yet an established
+    /// strategy for sharing mutable access to a *running* module; the
+    /// Scheduler (M4) will need to settle that properly (locking?
+    /// message-passing to an owning task?). Until then, a node's module
+    /// must not be shared elsewhere while the graph is executing.
+    pub fn process(
+        &mut self,
+        packet: nyarix_packet::Packet,
+    ) -> nyarix_module_api::Result<Option<nyarix_packet::Packet>> {
+        Arc::get_mut(&mut self.module)
+            .expect("node module Arc must be uniquely owned to process a packet")
+            .process(packet)
+    }
 }
 
 impl fmt::Debug for GraphNode {
