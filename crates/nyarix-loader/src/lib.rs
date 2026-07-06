@@ -138,7 +138,7 @@ pub fn scan_directories<P: AsRef<Path>>(directories: &[P]) -> ScanReport {
 
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().is_none_or(|ext| ext != "nyp") {
+            if path.extension().map_or(true, |ext| ext != "nyp") {
                 continue;
             }
 
