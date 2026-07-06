@@ -42,8 +42,9 @@ parking_lot = "0.12"
 dashmap = "6"
 smallvec = "1"
 strum = { version = "0.27", features = ["derive"] }
-bitflags = "2"
+bitflags = { version = "2", features = ["serde"] }
 chrono = { version = "0.4", features = ["serde"] }
+bincode = "1"
 
 # --- Dev dependencies ---
 criterion = "0.5"
