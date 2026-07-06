@@ -76,7 +76,7 @@ impl<T> Clone for PrioritySender<T> {
 }
 
 impl<T> PrioritySender<T> {
-    fn lane(&self, priority: TaskPriority) -> &mpsc::Sender<T> {
+    const fn lane(&self, priority: TaskPriority) -> &mpsc::Sender<T> {
         &self.lanes[priority as usize]
     }
 
