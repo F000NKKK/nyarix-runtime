@@ -98,7 +98,11 @@ impl PackageReader {
         let mut manifest_raw = None;
         for entry in archive.entries().map_err(io_error)? {
             let mut entry = entry.map_err(io_error)?;
-            let path = entry.path().map_err(io_error)?.to_string_lossy().into_owned();
+            let path = entry
+                .path()
+                .map_err(io_error)?
+                .to_string_lossy()
+                .into_owned();
             if path == PackageMember::Manifest.path() {
                 let mut buf = String::new();
                 entry.read_to_string(&mut buf).map_err(io_error)?;
@@ -139,7 +143,11 @@ impl PackageReader {
         let mut archive = tar::Archive::new(Cursor::new(self.tar_bytes.as_slice()));
         for entry in archive.entries().map_err(io_error)? {
             let mut entry = entry.map_err(io_error)?;
-            let entry_path = entry.path().map_err(io_error)?.to_string_lossy().into_owned();
+            let entry_path = entry
+                .path()
+                .map_err(io_error)?
+                .to_string_lossy()
+                .into_owned();
             if entry_path == path {
                 let mut buf = Vec::new();
                 entry.read_to_end(&mut buf).map_err(io_error)?;
