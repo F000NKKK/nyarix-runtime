@@ -125,7 +125,9 @@ impl CapabilityMask {
     /// Build a mask from a set of capabilities.
     #[must_use]
     pub fn from_capabilities(capabilities: &[Capability]) -> Self {
-        capabilities.iter().fold(Self::empty(), |mask, cap| mask | cap.mask())
+        capabilities
+            .iter()
+            .fold(Self::empty(), |mask, cap| mask | cap.mask())
     }
 
     /// Check whether a single capability is set.
@@ -168,7 +170,8 @@ mod tests {
             Capability::Crypto,
             Capability::Clock,
         ]);
-        let required = CapabilityMask::from_capabilities(&[Capability::Network, Capability::Crypto]);
+        let required =
+            CapabilityMask::from_capabilities(&[Capability::Network, Capability::Crypto]);
         let too_much = CapabilityMask::from_capabilities(&[Capability::Network, Capability::Tun]);
 
         assert!(granted.satisfies(required));
