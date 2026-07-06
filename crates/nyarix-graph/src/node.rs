@@ -165,6 +165,48 @@ impl GraphNode {
             .expect("node module Arc must be uniquely owned to migrate")
             .migrate(ctx)
     }
+
+    /// Call this node's module's `initialize` and, on success, transition
+    /// to [`NodeState::Running`] (see #43's execution loop, which calls
+    /// this on every node before the first `process`).
+    ///
+    /// # Panics
+    /// Same condition as [`Self::process`] — the module `Arc` must be
+    /// uniquely owned.
+    pub fn initialize(
+        &mut self,
+        ctx: &nyarix_module_api::RuntimeContext,
+    ) -> nyarix_module_api::Result<()> {
+        self.set_state(NodeState::Initializing);
+        let result = Arc::get_mut(&mut self.module)
+            .expect("node module Arc must be uniquely owned to initialize")
+            .initialize(ctx);
+        if result.is_ok() {
+            self.set_state(NodeState::Running);
+        }
+        result
+    }
+
+    /// Call this node's module's `shutdown` and, on success, transition
+    /// to [`NodeState::Stopped`] (see #43's execution loop, which calls
+    /// this on every node after the last `process`).
+    ///
+    /// # Panics
+    /// Same condition as [`Self::process`] — the module `Arc` must be
+    /// uniquely owned.
+    pub fn shutdown(
+        &mut self,
+        ctx: &nyarix_module_api::RuntimeContext,
+    ) -> nyarix_module_api::Result<()> {
+        self.set_state(NodeState::Stopping);
+        let result = Arc::get_mut(&mut self.module)
+            .expect("node module Arc must be uniquely owned to shut down")
+            .shutdown(ctx);
+        if result.is_ok() {
+            self.set_state(NodeState::Stopped);
+        }
+        result
+    }
 }
 
 impl fmt::Debug for GraphNode {

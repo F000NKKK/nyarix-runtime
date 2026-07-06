@@ -204,6 +204,13 @@ impl FlowGraph {
         self.nodes.len()
     }
 
+    /// Iterate the ids of every node currently in the graph, in no
+    /// particular order (used by the execution loop, see #43, to
+    /// initialize/shut down every node).
+    pub fn node_ids(&self) -> impl Iterator<Item = NodeId> + '_ {
+        self.nodes.keys().copied()
+    }
+
     /// Number of edges currently in the graph.
     #[must_use]
     pub fn edge_count(&self) -> usize {
