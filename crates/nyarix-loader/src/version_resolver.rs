@@ -1,13 +1,15 @@
 //! Version resolution: picking one concrete version per dependency name
 //! that satisfies every requirer's semver requirement (see issue #54).
 //!
-//! **Scope note:** this only picks versions — it doesn't decide whether
-//! an unresolved dependency is fatal (that's severity/categorization
-//! Conflict detection, #55, adds — e.g. distinguishing "not found at
-//! all" from "found, but every candidate is incompatible", and API
-//! version mismatches) and it doesn't know about `optional = true`
-//! dependencies (#56), which shouldn't produce a conflict at all when
-//! unresolved. Both build on [`ResolvedVersions`].
+//! **Scope note:** this only picks versions — it doesn't categorize
+//! *why* an unresolved required dependency is a problem (that's
+//! Conflict detection, #55 — e.g. distinguishing "not found at all"
+//! from "found, but every candidate is incompatible", and API version
+//! mismatches). It does honor `optional = true` (#56): if every
+//! requirer of a name marked it optional, an unresolved name is left
+//! out of both [`ResolvedVersions::resolved`] and
+//! [`ResolvedVersions::conflicts`] rather than treated as a conflict —
+//! see [`ResolvedVersions::unavailable_optional`].
 
 use std::collections::HashMap;
 
@@ -24,6 +26,9 @@ pub struct Requirement {
     pub requirer: String,
     /// The semver range it requires.
     pub version_req: VersionReq,
+    /// Whether the requirer marked this dependency `optional = true`
+    /// (#56).
+    pub optional: bool,
 }
 
 /// No available version of `name` satisfies every requirer's
@@ -62,8 +67,13 @@ pub struct ResolvedVersions {
     /// resolved.
     pub resolved: HashMap<String, Version>,
     /// Dependency names for which no available version satisfied every
-    /// requirer.
+    /// *non-optional* requirer.
     pub conflicts: Vec<VersionConflict>,
+    /// Dependency names every requirer marked `optional = true` (#56)
+    /// for which no available version satisfied them all — not a
+    /// conflict, just unavailable. A module checks for this via
+    /// `RuntimeContext::has_module`.
+    pub unavailable_optional: Vec<String>,
 }
 
 /// For every dependency named across `manifests`, pick the highest
@@ -81,19 +91,21 @@ pub fn resolve_versions<'a>(
 ) -> ResolvedVersions {
     let mut requirements: HashMap<String, Vec<Requirement>> = HashMap::new();
     for manifest in manifests {
-        for (name, version_req) in &manifest.dependencies {
+        for (name, dep) in &manifest.dependencies {
             requirements
                 .entry(name.clone())
                 .or_default()
                 .push(Requirement {
                     requirer: manifest.package.name.clone(),
-                    version_req: version_req.clone(),
+                    version_req: dep.version_req.clone(),
+                    optional: dep.optional,
                 });
         }
     }
 
     let mut resolved = HashMap::new();
     let mut conflicts = Vec::new();
+    let mut unavailable_optional = Vec::new();
 
     for (name, reqs) in requirements {
         let best = index
@@ -108,6 +120,9 @@ pub fn resolve_versions<'a>(
             Some(version) => {
                 resolved.insert(name, version);
             }
+            None if reqs.iter().all(|req| req.optional) => {
+                unavailable_optional.push(name);
+            }
             None => conflicts.push(VersionConflict {
                 name,
                 requirements: reqs,
@@ -118,6 +133,7 @@ pub fn resolve_versions<'a>(
     ResolvedVersions {
         resolved,
         conflicts,
+        unavailable_optional,
     }
 }
 
@@ -134,6 +150,15 @@ mod tests {
             .iter()
             .map(|(dep_name, req)| format!("{dep_name} = \"{req}\"\n"))
             .collect();
+        manifest_with_deps_toml(name, &deps_toml)
+    }
+
+    fn manifest_with_optional_dep(name: &str, dep_name: &str, req: &str) -> PackageManifest {
+        let deps_toml = format!("{dep_name} = {{ version = \"{req}\", optional = true }}\n");
+        manifest_with_deps_toml(name, &deps_toml)
+    }
+
+    fn manifest_with_deps_toml(name: &str, deps_toml: &str) -> PackageManifest {
         let toml = format!(
             r#"
 [package]
