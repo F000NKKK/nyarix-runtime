@@ -260,6 +260,7 @@ dependencies = [
  "nyarix-packet",
  "semver",
  "serde",
+ "tokio",
  "toml",
  "tracing",
 ]

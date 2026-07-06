@@ -23,7 +23,7 @@ pub mod versioning;
 pub use capability::{Capability, CapabilityMask};
 pub use config::ModuleConfig;
 pub use context::RuntimeContext;
-pub use event::Event;
+pub use event::{Event, EventBus, EventFilter, EventKind};
 pub use fallback::{resolve, Resolution};
 pub use health::Health;
 pub use metadata::{ModuleMetadata, ModuleType};
