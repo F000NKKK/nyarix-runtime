@@ -400,6 +400,90 @@ nyarix-crypto-core = "not-a-requirement"
     }
 
     #[test]
+    fn parses_an_optional_dependency_table() {
+        let manifest = PackageManifest::from_toml(
+            r#"
+[package]
+name = "has-optional-dep"
+version = "0.1.0"
+module_type = "flow"
+api_version = "1.0"
+author = "Nyarix"
+description = "x"
+
+[dependencies]
+nyarix-crypto-core = "^0.1"
+nyarix-metrics-optional = { version = "^0.2", optional = true }
+"#,
+        )
+        .unwrap();
+
+        let required = manifest.dependencies.get("nyarix-crypto-core").unwrap();
+        assert_eq!(required.version_req, VersionReq::parse("^0.1").unwrap());
+        assert!(!required.optional);
+
+        let optional = manifest
+            .dependencies
+            .get("nyarix-metrics-optional")
+            .unwrap();
+        assert_eq!(optional.version_req, VersionReq::parse("^0.2").unwrap());
+        assert!(optional.optional);
+    }
+
+    #[test]
+    fn a_dependency_table_without_optional_defaults_to_required() {
+        let manifest = PackageManifest::from_toml(
+            r#"
+[package]
+name = "has-dep-table"
+version = "0.1.0"
+module_type = "flow"
+api_version = "1.0"
+author = "Nyarix"
+description = "x"
+
+[dependencies]
+nyarix-crypto-core = { version = "^0.1" }
+"#,
+        )
+        .unwrap();
+
+        assert!(!manifest.dependencies["nyarix-crypto-core"].optional);
+    }
+
+    #[test]
+    fn dependency_spec_round_trips_through_toml() {
+        let optional = DependencySpec {
+            version_req: VersionReq::parse("^0.2").unwrap(),
+            optional: true,
+        };
+        let required = DependencySpec {
+            version_req: VersionReq::parse("^0.1").unwrap(),
+            optional: false,
+        };
+
+        #[derive(Serialize, Deserialize)]
+        struct Wrapper {
+            optional: DependencySpec,
+            required: DependencySpec,
+        }
+
+        let toml = toml::to_string(&Wrapper {
+            optional: optional.clone(),
+            required: required.clone(),
+        })
+        .unwrap();
+        // A non-optional dependency round-trips as a bare string, not a
+        // table with `optional = false`.
+        assert!(toml.contains("required = \"^0.1\""));
+        assert!(toml.contains("optional = true"));
+
+        let parsed: Wrapper = toml::from_str(&toml).unwrap();
+        assert_eq!(parsed.optional, optional);
+        assert_eq!(parsed.required, required);
+    }
+
+    #[test]
     fn rejects_an_empty_name() {
         let err = PackageManifest::from_toml(
             r#"
