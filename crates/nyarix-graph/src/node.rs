@@ -37,9 +37,14 @@ pub struct NodeConfig {
 }
 
 impl NodeConfig {
-    /// Default queue capacity, matching
-    /// `nyarix_config::GlobalDefaults::queue_depth`'s default.
-    pub const DEFAULT_QUEUE_CAPACITY: usize = 256;
+    /// Default queue capacity, per #36's explicit spec.
+    ///
+    /// Note: this used to be 256 (matching
+    /// `nyarix_config::GlobalDefaults::queue_depth`) until #36 specified
+    /// 64 for per-node queues specifically — the two defaults serve
+    /// different things (global scheduler-wide default vs. this node-local
+    /// one) and don't need to match.
+    pub const DEFAULT_QUEUE_CAPACITY: usize = 64;
 }
 
 impl Default for NodeConfig {
@@ -249,6 +254,6 @@ mod tests {
     #[test]
     fn default_queue_capacity_matches_global_default() {
         let config = NodeConfig::default();
-        assert_eq!(config.queue_capacity, 256);
+        assert_eq!(config.queue_capacity, 64);
     }
 }
