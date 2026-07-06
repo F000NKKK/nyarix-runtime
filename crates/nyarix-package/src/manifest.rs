@@ -286,4 +286,113 @@ description = "x"
         .unwrap_err();
         assert!(matches!(err, PackageError::InvalidManifest { .. }));
     }
+
+    #[test]
+    fn rejects_an_invalid_semver_version() {
+        let err = PackageManifest::from_toml(
+            r#"
+[package]
+name = "bad-version"
+version = "not-semver"
+module_type = "flow"
+api_version = "1.0"
+author = "Nyarix"
+description = "x"
+"#,
+        )
+        .unwrap_err();
+        assert!(matches!(err, PackageError::InvalidManifest { .. }));
+    }
+
+    #[test]
+    fn rejects_an_invalid_dependency_version_requirement() {
+        let err = PackageManifest::from_toml(
+            r#"
+[package]
+name = "bad-dependency"
+version = "0.1.0"
+module_type = "flow"
+api_version = "1.0"
+author = "Nyarix"
+description = "x"
+
+[dependencies]
+nyarix-crypto-core = "not-a-requirement"
+"#,
+        )
+        .unwrap_err();
+        assert!(matches!(err, PackageError::InvalidManifest { .. }));
+    }
+
+    #[test]
+    fn rejects_an_empty_name() {
+        let err = PackageManifest::from_toml(
+            r#"
+[package]
+name = ""
+version = "0.1.0"
+module_type = "flow"
+api_version = "1.0"
+author = "Nyarix"
+description = "x"
+"#,
+        )
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            PackageError::InvalidManifest { reason } if reason.contains("name")
+        ));
+    }
+
+    #[test]
+    fn error_messages_mention_which_field_is_the_problem() {
+        let err = PackageManifest::from_toml(
+            r#"
+[package]
+name = "bad-api-version"
+version = "0.1.0"
+module_type = "flow"
+api_version = "not-a-version"
+author = "Nyarix"
+description = "x"
+"#,
+        )
+        .unwrap_err();
+        let PackageError::InvalidManifest { reason } = err else {
+            panic!("expected InvalidManifest");
+        };
+        assert!(
+            reason.contains("api_version"),
+            "error should mention the offending field, got: {reason}"
+        );
+    }
+
+    #[test]
+    fn to_module_metadata_maps_the_spec_example() {
+        let manifest = PackageManifest::from_toml(EXAMPLE).unwrap();
+        let metadata = manifest.to_module_metadata();
+
+        assert_eq!(metadata.name, "nyarix-transport-udp");
+        assert_eq!(metadata.version, Version::new(0, 1, 0));
+        assert_eq!(metadata.module_type, ModuleType::Transport);
+        assert_eq!(metadata.api_version, ApiVersion::new(1, 0));
+        assert_eq!(metadata.author, "Nyarix");
+        assert_eq!(metadata.description, "UDP transport");
+        assert_eq!(metadata.required_capabilities, vec![Capability::Network]);
+        assert_eq!(metadata.provided_tags, vec!["transport-udp".to_string()]);
+        assert!(metadata.provided_capabilities.is_empty());
+        assert_eq!(
+            metadata.platforms,
+            vec![
+                Platform::Linux,
+                Platform::Windows,
+                Platform::MacOs,
+                Platform::Android
+            ]
+        );
+        assert_eq!(
+            metadata.resource_limits,
+            nyarix_module_api::ResourceLimits::unbounded()
+        );
+    }
 }
