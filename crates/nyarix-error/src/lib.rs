@@ -52,18 +52,31 @@ pub enum ConfigError {
     /// Failed to parse a configuration file.
     #[error("failed to parse config at {path}: {source}")]
     Parse {
+        /// The path of the config file that failed to parse.
         path: String,
+        /// The underlying parse error.
         source: Box<dyn std::error::Error + Send + Sync>,
     },
     /// Missing required configuration key.
     #[error("missing required key: {key}")]
-    MissingKey { key: String },
+    MissingKey {
+        /// The missing key's name.
+        key: String,
+    },
     /// Invalid configuration value.
     #[error("invalid value for {key}: {reason}")]
-    InvalidValue { key: String, reason: String },
+    InvalidValue {
+        /// The offending key's name.
+        key: String,
+        /// Why the value is invalid.
+        reason: String,
+    },
     /// Incompatible configuration between modules.
     #[error("incompatible config: {message}")]
-    Incompatible { message: String },
+    Incompatible {
+        /// Description of the incompatibility.
+        message: String,
+    },
 }
 
 /// Package-related errors.
@@ -72,24 +85,41 @@ pub enum PackageError {
     /// Failed to read a package file.
     #[error("failed to read package at {path}: {source}")]
     Io {
+        /// The path that failed to read.
         path: String,
+        /// The underlying I/O error.
         source: std::io::Error,
     },
     /// Invalid package manifest.
     #[error("invalid manifest: {reason}")]
-    InvalidManifest { reason: String },
+    InvalidManifest {
+        /// Why the manifest is invalid.
+        reason: String,
+    },
     /// Package signature verification failed.
     #[error("signature verification failed for {package}")]
-    SignatureFailure { package: String },
+    SignatureFailure {
+        /// The package whose signature failed to verify.
+        package: String,
+    },
     /// Unsupported package format version.
     #[error("unsupported package format version: {version}")]
-    UnsupportedVersion { version: String },
+    UnsupportedVersion {
+        /// The unsupported version string.
+        version: String,
+    },
     /// Package not found in registry or cache.
     #[error("package not found: {name}")]
-    NotFound { name: String },
+    NotFound {
+        /// The package name that couldn't be found.
+        name: String,
+    },
     /// A required top-level member (see #58's `.nyp` layout) is missing.
     #[error("package is missing required member: {path}")]
-    MissingMember { path: String },
+    MissingMember {
+        /// The path of the missing required member.
+        path: String,
+    },
 }
 
 /// Module-related errors.
@@ -97,26 +127,52 @@ pub enum PackageError {
 pub enum ModuleError {
     /// Module initialization failed.
     #[error("module '{name}' failed to initialize: {reason}")]
-    InitFailed { name: String, reason: String },
+    InitFailed {
+        /// The module's name.
+        name: String,
+        /// Why initialization failed.
+        reason: String,
+    },
     /// Module panicked or crashed during processing.
     #[error("module '{name}' crashed: {reason}")]
-    Crashed { name: String, reason: String },
+    Crashed {
+        /// The module's name.
+        name: String,
+        /// Why the module crashed.
+        reason: String,
+    },
     /// Module is not compatible with the current Runtime API.
     #[error("module '{name}' requires API {required}, but Runtime provides {actual}")]
     ApiMismatch {
+        /// The module's name.
         name: String,
+        /// The API version the module requires.
         required: String,
+        /// The API version the Runtime actually provides.
         actual: String,
     },
     /// Module dependency is missing.
     #[error("module '{name}' depends on '{dependency}' which is not available")]
-    MissingDependency { name: String, dependency: String },
+    MissingDependency {
+        /// The module that declared the dependency.
+        name: String,
+        /// The missing dependency's name.
+        dependency: String,
+    },
     /// Circular dependency detected.
     #[error("circular dependency detected involving: {chain}")]
-    CircularDependency { chain: String },
+    CircularDependency {
+        /// The dependency chain forming the cycle.
+        chain: String,
+    },
     /// Module exceeded its resource quota.
     #[error("module '{name}' exceeded {resource} limit")]
-    QuotaExceeded { name: String, resource: String },
+    QuotaExceeded {
+        /// The module's name.
+        name: String,
+        /// The resource whose limit was exceeded.
+        resource: String,
+    },
 }
 
 /// Graph-related errors.
@@ -124,15 +180,24 @@ pub enum ModuleError {
 pub enum GraphError {
     /// Cycle detected in the flow graph.
     #[error("cycle detected in graph: {cycle}")]
-    Cycle { cycle: String },
+    Cycle {
+        /// A description of the cycle.
+        cycle: String,
+    },
     /// Missing node required by the graph.
     #[error("missing node: {node_id}")]
-    MissingNode { node_id: String },
+    MissingNode {
+        /// The missing node's identifier.
+        node_id: String,
+    },
     /// Incompatible edge between nodes.
     #[error("incompatible edge: {from} -> {to}: {reason}")]
     IncompatibleEdge {
+        /// The edge's source node.
         from: String,
+        /// The edge's destination node.
         to: String,
+        /// Why the edge is incompatible.
         reason: String,
     },
     /// Graph is disconnected.
@@ -140,7 +205,10 @@ pub enum GraphError {
     Disconnected,
     /// Failed to build graph from configuration.
     #[error("graph build failed: {reason}")]
-    BuildFailed { reason: String },
+    BuildFailed {
+        /// Why building the graph failed.
+        reason: String,
+    },
 }
 
 /// Runtime execution errors.
@@ -154,13 +222,22 @@ pub enum RuntimeError {
     ShuttingDown,
     /// Scheduler error.
     #[error("scheduler error: {reason}")]
-    Scheduler { reason: String },
+    Scheduler {
+        /// Why the scheduler failed.
+        reason: String,
+    },
     /// Event bus error.
     #[error("event bus error: {reason}")]
-    EventBus { reason: String },
+    EventBus {
+        /// Why the event bus failed.
+        reason: String,
+    },
     /// Resource exhaustion.
     #[error("resource exhausted: {resource}")]
-    ResourceExhausted { resource: String },
+    ResourceExhausted {
+        /// The exhausted resource's name.
+        resource: String,
+    },
 }
 
 /// Transport errors (network I/O).
@@ -169,21 +246,35 @@ pub enum TransportError {
     /// Connection failed.
     #[error("connection to {addr} failed: {source}")]
     ConnectionFailed {
+        /// The address that couldn't be connected to.
         addr: String,
+        /// The underlying I/O error.
         source: std::io::Error,
     },
     /// Connection was reset.
     #[error("connection reset: {reason}")]
-    ConnectionReset { reason: String },
+    ConnectionReset {
+        /// Why the connection was reset.
+        reason: String,
+    },
     /// Timeout.
     #[error("transport timeout after {duration_ms}ms")]
-    Timeout { duration_ms: u64 },
+    Timeout {
+        /// How long the Runtime waited before timing out, in milliseconds.
+        duration_ms: u64,
+    },
     /// Address resolution failed.
     #[error("failed to resolve address: {addr}")]
-    ResolutionFailed { addr: String },
+    ResolutionFailed {
+        /// The address that failed to resolve.
+        addr: String,
+    },
     /// Transport is not supported on this platform.
     #[error("transport not supported: {transport}")]
-    NotSupported { transport: String },
+    NotSupported {
+        /// The unsupported transport's name.
+        transport: String,
+    },
 }
 
 /// Cryptographic errors.
@@ -191,16 +282,28 @@ pub enum TransportError {
 pub enum CryptoError {
     /// Key exchange failed.
     #[error("key exchange failed: {reason}")]
-    KeyExchange { reason: String },
+    KeyExchange {
+        /// Why the key exchange failed.
+        reason: String,
+    },
     /// Encryption/decryption failed.
     #[error("crypto operation failed: {reason}")]
-    OperationFailed { reason: String },
+    OperationFailed {
+        /// Why the operation failed.
+        reason: String,
+    },
     /// Invalid key material.
     #[error("invalid key: {reason}")]
-    InvalidKey { reason: String },
+    InvalidKey {
+        /// Why the key is invalid.
+        reason: String,
+    },
     /// Algorithm not supported.
     #[error("crypto algorithm not supported: {algorithm}")]
-    UnsupportedAlgorithm { algorithm: String },
+    UnsupportedAlgorithm {
+        /// The unsupported algorithm's name.
+        algorithm: String,
+    },
 }
 
 /// Security and sandbox errors.
@@ -208,20 +311,36 @@ pub enum CryptoError {
 pub enum SecurityError {
     /// Module requested a capability it was not granted.
     #[error("module '{module}' denied capability '{capability}'")]
-    CapabilityDenied { module: String, capability: String },
+    CapabilityDenied {
+        /// The module that was denied.
+        module: String,
+        /// The capability it was denied.
+        capability: String,
+    },
     /// Signing verification failed.
     #[error("signature verification failed: {reason}")]
-    SignatureFailed { reason: String },
+    SignatureFailed {
+        /// Why signature verification failed.
+        reason: String,
+    },
     /// Trust level insufficient.
     #[error("module '{module}' has trust level {level}, requires {required}")]
     InsufficientTrust {
+        /// The module with insufficient trust.
         module: String,
+        /// The module's actual trust level.
         level: String,
+        /// The trust level required.
         required: String,
     },
     /// Sandbox violation.
     #[error("sandbox violation by '{module}': {violation}")]
-    SandboxViolation { module: String, violation: String },
+    SandboxViolation {
+        /// The module that violated its sandbox.
+        module: String,
+        /// A description of the violation.
+        violation: String,
+    },
 }
 
 /// Internal errors — these should not happen in normal operation.
@@ -229,11 +348,20 @@ pub enum SecurityError {
 pub enum InternalError {
     /// An invariant was violated.
     #[error("invariant violated: {message}")]
-    InvariantViolation { message: String },
+    InvariantViolation {
+        /// A description of the violated invariant.
+        message: String,
+    },
     /// Unexpected state.
     #[error("unexpected state: {message}")]
-    UnexpectedState { message: String },
+    UnexpectedState {
+        /// A description of the unexpected state.
+        message: String,
+    },
     /// A bug was detected.
     #[error("bug: {message}")]
-    Bug { message: String },
+    Bug {
+        /// A description of the bug.
+        message: String,
+    },
 }
