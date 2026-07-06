@@ -186,7 +186,7 @@ mod tests {
 
     impl Node for StubRouter {
         fn node_type(&self) -> NodeType {
-            nyarix_module_api::NodeType::Router
+            NodeType::Router
         }
 
         fn input_queue_depth(&self) -> usize {
@@ -203,7 +203,7 @@ mod tests {
         let module: Arc<dyn Node> = Arc::new(StubRouter::new());
         let node = GraphNode::new(NodeId::new(), module, NodeConfig::default());
 
-        assert_eq!(node.node_type(), nyarix_module_api::NodeType::Router);
+        assert_eq!(node.node_type(), NodeType::Router);
     }
 
     #[test]

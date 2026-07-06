@@ -25,6 +25,11 @@ pub struct FlowGraph {
     adjacency: HashMap<NodeId, Vec<NodeId>>,
     entry_points: Vec<NodeId>,
     exit_points: Vec<NodeId>,
+    /// Edges explicitly allowed to close a cycle — intentional feedback
+    /// loops (see #31's "explicit allowlist" option). Cycle detection
+    /// skips traversing these edges, so a back-edge here can't be blamed
+    /// for an otherwise-illegal cycle.
+    allowed_feedback_edges: HashSet<(NodeId, NodeId)>,
 }
 
 impl FlowGraph {
@@ -205,6 +210,152 @@ impl FlowGraph {
     pub fn exit_points(&self) -> &[NodeId] {
         &self.exit_points
     }
+
+    /// Mark an edge as an intentional feedback loop (see #31): cycle
+    /// detection will not traverse it, so it can't be blamed for forming
+    /// an illegal cycle. Does not affect routing — the edge still carries
+    /// packets normally.
+    pub fn allow_feedback_edge(&mut self, from: NodeId, to: NodeId) {
+        self.allowed_feedback_edges.insert((from, to));
+    }
+
+    /// Detect a cycle in the graph via DFS, ignoring edges marked with
+    /// [`Self::allow_feedback_edge`].
+    ///
+    /// Returns the node ids forming the cycle, in traversal order, with
+    /// the starting node repeated at the end (e.g. `[a, b, c, a]`) — see
+    /// [`Self::describe_cycle`] to render this as a message like
+    /// `"Router → Fragmenter → Compressor → Router"`.
+    #[must_use]
+    pub fn detect_cycle(&self) -> Option<Vec<NodeId>> {
+        let mut marks: HashMap<NodeId, DfsMark> = HashMap::new();
+        let mut stack: Vec<NodeId> = Vec::new();
+
+        for &start in self.nodes.keys() {
+            if marks.contains_key(&start) {
+                continue;
+            }
+            if let Some(cycle) = self.dfs_detect_cycle(start, &mut marks, &mut stack) {
+                return Some(cycle);
+            }
+        }
+        None
+    }
+
+    fn dfs_detect_cycle(
+        &self,
+        node: NodeId,
+        marks: &mut HashMap<NodeId, DfsMark>,
+        stack: &mut Vec<NodeId>,
+    ) -> Option<Vec<NodeId>> {
+        marks.insert(node, DfsMark::Visiting);
+        stack.push(node);
+
+        if let Some(neighbors) = self.adjacency.get(&node) {
+            for &next in neighbors {
+                if self.allowed_feedback_edges.contains(&(node, next)) {
+                    continue;
+                }
+                match marks.get(&next) {
+                    Some(DfsMark::Visiting) => {
+                        let start_pos = stack.iter().position(|&n| n == next).unwrap_or(0);
+                        let mut cycle = stack[start_pos..].to_vec();
+                        cycle.push(next);
+                        return Some(cycle);
+                    }
+                    Some(DfsMark::Visited) => {}
+                    None => {
+                        if let Some(cycle) = self.dfs_detect_cycle(next, marks, stack) {
+                            return Some(cycle);
+                        }
+                    }
+                }
+            }
+        }
+
+        stack.pop();
+        marks.insert(node, DfsMark::Visited);
+        None
+    }
+
+    /// Render a cycle (as returned by [`Self::detect_cycle`]) as a
+    /// human-readable chain of module names, e.g.
+    /// `"Router → Fragmenter → Compressor → Router"`.
+    #[must_use]
+    pub fn describe_cycle(&self, cycle: &[NodeId]) -> String {
+        cycle
+            .iter()
+            .map(|id| {
+                self.node(*id).map_or_else(
+                    || id.to_string(),
+                    |node| node.module().metadata().name.clone(),
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" → ")
+    }
+
+    /// Validate that this graph is well-formed:
+    /// - acyclic (modulo [`Self::allow_feedback_edge`]-marked edges)
+    /// - every entry point can reach at least one exit point
+    /// - no orphaned nodes (nodes with neither incoming nor outgoing
+    ///   edges), except entry/exit points themselves
+    ///
+    /// **Not yet checked:** node-type compatibility at edge boundaries
+    /// (e.g. does it make sense for a `Router` to feed an `Encryptor`?) —
+    /// tracked separately (see the issue comment) since it needs a
+    /// compatibility matrix that doesn't exist anywhere yet.
+    ///
+    /// # Errors
+    /// Returns [`GraphError::Cycle`] if a cycle is found, or
+    /// [`GraphError::BuildFailed`] describing the first reachability or
+    /// orphan violation found.
+    pub fn validate(&self) -> Result<(), GraphError> {
+        if let Some(cycle) = self.detect_cycle() {
+            return Err(GraphError::Cycle {
+                cycle: self.describe_cycle(&cycle),
+            });
+        }
+
+        for &entry in &self.entry_points {
+            let reaches_an_exit = self
+                .exit_points
+                .iter()
+                .any(|&exit| self.find_path(entry, exit).is_some());
+            if !reaches_an_exit {
+                return Err(GraphError::BuildFailed {
+                    reason: format!("entry point {entry} cannot reach any exit point"),
+                });
+            }
+        }
+
+        for &id in self.nodes.keys() {
+            if self.entry_points.contains(&id) || self.exit_points.contains(&id) {
+                continue;
+            }
+            let has_incoming = self.edges.iter().any(|edge| edge.to() == id);
+            let has_outgoing = self.adjacency.get(&id).is_some_and(|out| !out.is_empty());
+            if !has_incoming && !has_outgoing {
+                let name = self.node(id).map_or_else(
+                    || id.to_string(),
+                    |node| node.module().metadata().name.clone(),
+                );
+                return Err(GraphError::BuildFailed {
+                    reason: format!(
+                        "node '{name}' ({id}) is orphaned: no incoming or outgoing edges"
+                    ),
+                });
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DfsMark {
+    Visiting,
+    Visited,
 }
 
 #[cfg(test)]
@@ -392,5 +543,122 @@ mod tests {
         assert_eq!(graph.edge_count(), 0);
         assert!(graph.entry_points().is_empty());
         assert!(graph.node(a_id).is_none());
+    }
+
+    #[test]
+    fn valid_linear_graph_passes_validation() {
+        let mut graph = FlowGraph::new();
+        let a = node("source", NodeType::Source);
+        let b = node("sink", NodeType::Sink);
+        let (a_id, b_id) = (a.id(), b.id());
+        graph.add_node(a);
+        graph.add_node(b);
+
+        let (edge, _rx) = Edge::new(a_id, b_id, EdgeType::Sequential, None, 8);
+        graph.connect(edge).unwrap();
+
+        assert!(graph.detect_cycle().is_none());
+        assert!(graph.validate().is_ok());
+    }
+
+    #[test]
+    fn detects_a_cycle() {
+        let mut graph = FlowGraph::new();
+        let a = node("router", NodeType::Router);
+        let b = node("fragmenter", NodeType::Transformer);
+        let c = node("compressor", NodeType::Transformer);
+        let (a_id, b_id, c_id) = (a.id(), b.id(), c.id());
+        graph.add_node(a);
+        graph.add_node(b);
+        graph.add_node(c);
+
+        let (ab, _rx1) = Edge::new(a_id, b_id, EdgeType::Sequential, None, 8);
+        let (bc, _rx2) = Edge::new(b_id, c_id, EdgeType::Sequential, None, 8);
+        let (ca, _rx3) = Edge::new(c_id, a_id, EdgeType::Sequential, None, 8);
+        graph.connect(ab).unwrap();
+        graph.connect(bc).unwrap();
+        graph.connect(ca).unwrap();
+
+        // DFS can start from any node (HashMap iteration order isn't
+        // guaranteed), so the cycle may be reported starting at any of
+        // its members — check by rotation instead of an exact string.
+        let valid_descriptions = [
+            "router → fragmenter → compressor → router",
+            "fragmenter → compressor → router → fragmenter",
+            "compressor → router → fragmenter → compressor",
+        ];
+
+        let cycle = graph.detect_cycle().expect("cycle should be detected");
+        let description = graph.describe_cycle(&cycle);
+        assert!(
+            valid_descriptions.contains(&description.as_str()),
+            "unexpected cycle description: {description}"
+        );
+
+        match graph.validate() {
+            Err(GraphError::Cycle { cycle }) => assert_eq!(cycle, description),
+            other => panic!("expected Cycle error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn allowed_feedback_edge_is_not_a_cycle() {
+        let mut graph = FlowGraph::new();
+        let a = node("source", NodeType::Source);
+        let b = node("loop-node", NodeType::Transformer);
+        let c = node("sink", NodeType::Sink);
+        let (a_id, b_id, c_id) = (a.id(), b.id(), c.id());
+        graph.add_node(a);
+        graph.add_node(b);
+        graph.add_node(c);
+
+        let (ab, _rx1) = Edge::new(a_id, b_id, EdgeType::Sequential, None, 8);
+        let (bc, _rx2) = Edge::new(b_id, c_id, EdgeType::Sequential, None, 8);
+        let (feedback, _rx3) = Edge::new(b_id, b_id, EdgeType::Fallback, None, 8);
+        graph.connect(ab).unwrap();
+        graph.connect(bc).unwrap();
+        graph.connect(feedback).unwrap();
+
+        // Without the allowlist, the self-loop is a cycle.
+        assert!(graph.detect_cycle().is_some());
+
+        graph.allow_feedback_edge(b_id, b_id);
+        assert!(graph.detect_cycle().is_none());
+        assert!(graph.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_unreachable_exit() {
+        let mut graph = FlowGraph::new();
+        let a = node("source", NodeType::Source);
+        let b = node("sink", NodeType::Sink);
+        graph.add_node(a);
+        graph.add_node(b);
+        // No edge connecting them: entry point can't reach the exit point.
+
+        match graph.validate() {
+            Err(GraphError::BuildFailed { .. }) => {}
+            other => panic!("expected BuildFailed error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn validate_rejects_orphan_node() {
+        let mut graph = FlowGraph::new();
+        let a = node("source", NodeType::Source);
+        let b = node("sink", NodeType::Sink);
+        let orphan = node("orphan", NodeType::Observer);
+        let (a_id, b_id) = (a.id(), b.id());
+        graph.add_node(a);
+        graph.add_node(b);
+        graph.add_node(orphan);
+
+        let (edge, _rx) = Edge::new(a_id, b_id, EdgeType::Sequential, None, 8);
+        graph.connect(edge).unwrap();
+
+        match graph.validate() {
+            Err(GraphError::BuildFailed { reason }) => assert!(reason.contains("orphan")),
+            other => panic!("expected BuildFailed error, got {other:?}"),
+        }
     }
 }
