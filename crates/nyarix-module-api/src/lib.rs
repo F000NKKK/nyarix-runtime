@@ -9,8 +9,10 @@ pub mod context;
 pub mod health;
 pub mod metadata;
 mod module;
+mod node;
 
 pub use context::RuntimeContext;
 pub use health::Health;
 pub use metadata::{ModuleMetadata, ModuleType};
 pub use module::{Module, Result};
+pub use node::{Node, NodeType};
