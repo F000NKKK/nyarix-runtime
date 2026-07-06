@@ -379,7 +379,11 @@ impl FlowGraph {
     /// Returns [`GraphError::MissingNode`] if `after_id` doesn't exist, or
     /// [`GraphError::BuildFailed`] if `after_id` has more than one
     /// outgoing edge (ambiguous which one to splice into).
-    pub fn insert_after(&mut self, after_id: NodeId, new_node: GraphNode) -> Result<(), GraphError> {
+    pub fn insert_after(
+        &mut self,
+        after_id: NodeId,
+        new_node: GraphNode,
+    ) -> Result<(), GraphError> {
         if !self.nodes.contains_key(&after_id) {
             return Err(GraphError::MissingNode {
                 node_id: after_id.to_string(),
@@ -526,9 +530,12 @@ impl FlowGraph {
         new_module: std::sync::Arc<dyn nyarix_module_api::Node>,
         ctx: &nyarix_module_api::RuntimeContext,
     ) -> Result<SwapOutcome, GraphError> {
-        let old_node = self.nodes.get_mut(&id).ok_or_else(|| GraphError::MissingNode {
-            node_id: id.to_string(),
-        })?;
+        let old_node = self
+            .nodes
+            .get_mut(&id)
+            .ok_or_else(|| GraphError::MissingNode {
+                node_id: id.to_string(),
+            })?;
 
         let migrate_result = old_node.migrate(ctx);
         let config = old_node.config().clone();
@@ -1019,14 +1026,18 @@ mod tests {
         let hub = node("hub", NodeType::Aggregator);
         let b1 = node("sink-1", NodeType::Sink);
         let b2 = node("sink-2", NodeType::Sink);
-        let (a1_id, a2_id, hub_id, b1_id, b2_id) =
-            (a1.id(), a2.id(), hub.id(), b1.id(), b2.id());
+        let (a1_id, a2_id, hub_id, b1_id, b2_id) = (a1.id(), a2.id(), hub.id(), b1.id(), b2.id());
         graph.add_node(a1);
         graph.add_node(a2);
         graph.add_node(hub);
         graph.add_node(b1);
         graph.add_node(b2);
-        for (from, to) in [(a1_id, hub_id), (a2_id, hub_id), (hub_id, b1_id), (hub_id, b2_id)] {
+        for (from, to) in [
+            (a1_id, hub_id),
+            (a2_id, hub_id),
+            (hub_id, b1_id),
+            (hub_id, b2_id),
+        ] {
             let (edge, _rx) = Edge::new(from, to, EdgeType::Sequential, None, 8);
             graph.connect(edge).unwrap();
         }
@@ -1058,10 +1069,7 @@ mod tests {
 
         assert!(outcome.migrate_result.is_ok());
         assert_eq!(outcome.replaced.module().metadata().name, "old");
-        assert_eq!(
-            graph.node(b_id).unwrap().module().metadata().name,
-            "new"
-        );
+        assert_eq!(graph.node(b_id).unwrap().module().metadata().name, "new");
         // Edges are untouched: the path still exists under the same id.
         assert_eq!(graph.find_path(a_id, c_id), Some(vec![a_id, b_id, c_id]));
     }
@@ -1079,12 +1087,22 @@ mod tests {
 
     #[test]
     fn diff_reports_added_removed_and_changed() {
+        // Shared module instance for the node that must NOT be reported
+        // as "changed" — `changed_nodes` is Arc pointer identity, so the
+        // unchanged node must genuinely be the same Arc in both graphs,
+        // not just an equivalent-looking new instance.
+        let unchanged_source: Arc<dyn Node> = Arc::new(StubNode::new("source", NodeType::Source));
+        let a_id = NodeId::new();
+
         let mut old_graph = FlowGraph::new();
-        let a = node("source", NodeType::Source);
+        old_graph.add_node(GraphNode::new(
+            a_id,
+            Arc::clone(&unchanged_source),
+            NodeConfig::default(),
+        ));
         let b = node("stays", NodeType::Transformer);
         let removed_node = node("removed", NodeType::Sink);
-        let (a_id, b_id, removed_id) = (a.id(), b.id(), removed_node.id());
-        old_graph.add_node(a);
+        let (b_id, removed_id) = (b.id(), removed_node.id());
         old_graph.add_node(b);
         old_graph.add_node(removed_node);
         let (e1, _rx1) = Edge::new(a_id, b_id, EdgeType::Sequential, None, 8);
@@ -1093,11 +1111,18 @@ mod tests {
         old_graph.connect(e2).unwrap();
 
         let mut new_graph = FlowGraph::new();
-        let a2 = node("source", NodeType::Source);
+        new_graph.add_node(GraphNode::new(
+            a_id,
+            Arc::clone(&unchanged_source),
+            NodeConfig::default(),
+        ));
         let b2 = node("stays-changed", NodeType::Transformer);
         let added_node = node("added", NodeType::Sink);
-        new_graph.add_node(GraphNode::new(a_id, Arc::clone(a2.module()), a2.config().clone()));
-        new_graph.add_node(GraphNode::new(b_id, Arc::clone(b2.module()), b2.config().clone()));
+        new_graph.add_node(GraphNode::new(
+            b_id,
+            Arc::clone(b2.module()),
+            b2.config().clone(),
+        ));
         let added_id = added_node.id();
         new_graph.add_node(added_node);
         let (e3, _rx3) = Edge::new(a_id, b_id, EdgeType::Sequential, None, 8);
@@ -1109,7 +1134,11 @@ mod tests {
         assert_eq!(diff.added_nodes, vec![added_id]);
         assert_eq!(diff.removed_nodes, vec![removed_id]);
         assert_eq!(diff.changed_nodes, vec![b_id]);
-        assert!(diff.added_edges.contains(&(b_id, added_id, EdgeType::Sequential)));
-        assert!(diff.removed_edges.contains(&(b_id, removed_id, EdgeType::Sequential)));
+        assert!(diff
+            .added_edges
+            .contains(&(b_id, added_id, EdgeType::Sequential)));
+        assert!(diff
+            .removed_edges
+            .contains(&(b_id, removed_id, EdgeType::Sequential)));
     }
 }
