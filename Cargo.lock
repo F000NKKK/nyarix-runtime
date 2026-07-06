@@ -266,6 +266,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nyarix-package"
+version = "0.1.0"
+dependencies = [
+ "nyarix-error",
+]
+
+[[package]]
 name = "nyarix-packet"
 version = "0.1.0"
 dependencies = [

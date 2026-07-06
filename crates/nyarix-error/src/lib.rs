@@ -87,6 +87,9 @@ pub enum PackageError {
     /// Package not found in registry or cache.
     #[error("package not found: {name}")]
     NotFound { name: String },
+    /// A required top-level member (see #58's `.nyp` layout) is missing.
+    #[error("package is missing required member: {path}")]
+    MissingMember { path: String },
 }
 
 /// Module-related errors.
