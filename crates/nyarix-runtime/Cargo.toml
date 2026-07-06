@@ -1,0 +1,20 @@
+[package]
+name = "nyarix-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+nyarix-core.workspace = true
+nyarix-error.workspace = true
+nyarix-config.workspace = true
+nyarix-packet.workspace = true
+nyarix-graph.workspace = true
+nyarix-module-api.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true

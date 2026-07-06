@@ -25,6 +25,7 @@ pub struct Packet {
     inner: Arc<PacketInner>,
 }
 
+#[derive(Clone)]
 struct PacketInner {
     id: PacketId,
     payload: Payload,
@@ -133,13 +134,13 @@ impl Packet {
 
     /// Add a tag to the packet.
     pub fn tag(&mut self, tag: crate::tags::Tag) {
-        self.tags_mut().insert(tag);
+        self.tags_mut().insert_tag(tag);
     }
 
     /// Check if the packet has a specific tag.
     #[must_use]
     pub fn has_tag(&self, tag: crate::tags::Tag) -> bool {
-        self.tags().contains(tag)
+        self.tags().has_tag(tag)
     }
 
     /// Get the TTL (time-to-live) for this packet in the graph.

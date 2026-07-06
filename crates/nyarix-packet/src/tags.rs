@@ -68,7 +68,7 @@ impl Tags {
     }
 
     /// Insert a single tag.
-    pub fn insert(&mut self, tag: Tag) {
+    pub fn insert_tag(&mut self, tag: Tag) {
         match tag {
             Tag::Interactive => self.insert(Self::INTERACTIVE),
             Tag::Bulk => self.insert(Self::BULK),
@@ -93,7 +93,7 @@ impl Tags {
 
     /// Check if a tag is set.
     #[must_use]
-    pub fn contains(&self, tag: Tag) -> bool {
+    pub fn has_tag(&self, tag: Tag) -> bool {
         match tag {
             Tag::Interactive => self.contains(Self::INTERACTIVE),
             Tag::Bulk => self.contains(Self::BULK),
@@ -171,26 +171,26 @@ mod tests {
     #[test]
     fn empty_tags() {
         let tags = Tags::new();
-        assert!(!tags.contains(Tag::Interactive));
+        assert!(!tags.has_tag(Tag::Interactive));
         assert!(!tags.is_control());
     }
 
     #[test]
     fn insert_and_check() {
         let mut tags = Tags::new();
-        tags.insert(Tag::Interactive);
-        tags.insert(Tag::Control);
+        tags.insert_tag(Tag::Interactive);
+        tags.insert_tag(Tag::Control);
 
         assert!(tags.is_interactive());
         assert!(tags.is_control());
-        assert!(!tags.contains(Tag::Handshake));
+        assert!(!tags.has_tag(Tag::Handshake));
     }
 
     #[test]
     fn bitflags_ops() {
         let mut tags = Tags::new();
-        tags.insert(Tag::Handshake);
-        tags.insert(Tag::Heartbeat);
+        tags.insert_tag(Tag::Handshake);
+        tags.insert_tag(Tag::Heartbeat);
 
         assert!(tags.contains(Tags::HANDSHAKE | Tags::HEARTBEAT));
         assert!(!tags.contains(Tags::HANDSHAKE | Tags::FRAGMENT));
