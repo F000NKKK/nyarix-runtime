@@ -5,8 +5,11 @@ use std::fmt;
 /// A semantic version (major.minor.patch).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct SemVer {
+    /// Incremented on breaking changes.
     pub major: u32,
+    /// Incremented on backward-compatible additions.
     pub minor: u32,
+    /// Incremented on backward-compatible bug fixes.
     pub patch: u32,
 }
 

@@ -1,8 +1,7 @@
 //! Platform detection and abstraction types.
 
 /// The target platform for a build or execution.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Platform {
     /// Linux (x86_64, aarch64)
     Linux,

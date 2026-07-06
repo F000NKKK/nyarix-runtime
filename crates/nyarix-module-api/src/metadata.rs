@@ -1,13 +1,17 @@
 //! Module metadata (see issue #20).
 //!
 //! `ModuleMetadata` here is still not the *complete* #20 shape: `dependencies`
-//! and `sandbox_permissions` remain deferred. `dependencies: Vec<DependencySpec>`
-//! needs the Module Loader's actual dependency-matching syntax (M5, #53
-//! Dependency resolver) to be decided first — semver ranges vs. something
-//! else is an open question there, not here. `sandbox_permissions` has no
-//! settled taxonomy anywhere in the backlog yet (unlike capabilities, which
-//! #21 fully specifies) — it needs Sandbox design (M7, #75) before its shape
-//! can be more than a guess.
+//! and `sandbox_permissions` remain deferred. The dependency-matching syntax
+//! this comment used to say was still an open question is now decided —
+//! `nyarix_package::manifest::DependencySpec` (#59/#56: a semver
+//! requirement plus an `optional` flag) — but adding a `dependencies`
+//! field here still isn't done: nothing yet consumes it from
+//! `ModuleMetadata` itself (Module instantiation, #57, is the earliest
+//! candidate), so it would be a guess which crate should own the type and
+//! whether `ModuleMetadata` needs its own copy at all. `sandbox_permissions`
+//! has no settled taxonomy anywhere in the backlog yet (unlike
+//! capabilities, which #21 fully specifies) — it needs Sandbox design
+//! (M7, #75) before its shape can be more than a guess.
 
 use serde::{Deserialize, Serialize};
 
