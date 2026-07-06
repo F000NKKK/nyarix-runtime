@@ -10,6 +10,7 @@ rust-version.workspace = true
 nyarix-core.workspace = true
 nyarix-error.workspace = true
 nyarix-packet.workspace = true
+nyarix-module-api.workspace = true
 tracing.workspace = true
 
 [lints]
