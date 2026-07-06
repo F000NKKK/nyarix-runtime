@@ -202,7 +202,8 @@ impl Packet {
             metadata: self.inner.metadata.clone(),
             tags: self.inner.tags,
         };
-        bincode::serialize(&wire).expect("packet encoding does not fail")
+        bincode::serde::encode_to_vec(&wire, bincode::config::standard())
+            .expect("packet encoding does not fail")
     }
 
     /// Decode a packet previously produced by [`Packet::encode`].
@@ -210,7 +211,8 @@ impl Packet {
     /// # Errors
     /// Returns [`DecodeError`] if `buf` is not a validly encoded packet.
     pub fn decode(buf: &[u8]) -> Result<Self, DecodeError> {
-        let wire: PacketWire = bincode::deserialize(buf)?;
+        let (wire, _): (PacketWire, usize) =
+            bincode::serde::decode_from_slice(buf, bincode::config::standard())?;
         Ok(Self::from_inner(PacketInner {
             id: wire.id,
             payload: Payload::from_vec(wire.payload),
@@ -252,7 +254,7 @@ struct PacketWire {
 /// encoded packet.
 #[derive(Debug, Error)]
 #[error("failed to decode packet: {0}")]
-pub struct DecodeError(#[from] bincode::Error);
+pub struct DecodeError(#[from] bincode::error::DecodeError);
 
 impl PartialEq for Packet {
     /// Structural equality by value (id, payload bytes, metadata, tags) —
