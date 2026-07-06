@@ -1,4 +1,7 @@
-//! Graph edge structure (see issue #28).
+//! Graph edge structure (see issue #28) and backpressure metrics (#35).
+
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use nyarix_core::NodeId;
 use nyarix_packet::Packet;
@@ -30,6 +33,9 @@ pub struct Edge {
     edge_type: EdgeType,
     condition: Option<Condition>,
     queue: mpsc::Sender<Packet>,
+    /// Packets lost to [`Self::try_send_or_drop`] finding the queue full
+    /// (see #35).
+    dropped: Arc<AtomicU64>,
 }
 
 impl Edge {
@@ -58,6 +64,7 @@ impl Edge {
                 edge_type,
                 condition,
                 queue: sender,
+                dropped: Arc::new(AtomicU64::new(0)),
             },
             receiver,
         )
@@ -121,6 +128,37 @@ impl Edge {
     #[must_use]
     pub fn sink(&self) -> PollSender<Packet> {
         PollSender::new(self.queue.clone())
+    }
+
+    /// Attempt to send a packet, and if the queue is full, drop it
+    /// instead of propagating the error — incrementing
+    /// [`Self::dropped_count`] (see #35).
+    ///
+    /// Returns `true` if the packet was enqueued, `false` if it was
+    /// dropped. A dropped receiver (not just a full queue) also counts
+    /// as a drop here — from the sender's perspective, the packet didn't
+    /// get through either way.
+    pub fn try_send_or_drop(&self, packet: Packet) -> bool {
+        match self.queue.try_send(packet) {
+            Ok(()) => true,
+            Err(_) => {
+                self.dropped.fetch_add(1, Ordering::Relaxed);
+                false
+            }
+        }
+    }
+
+    /// How many packets have been dropped via [`Self::try_send_or_drop`]
+    /// on this edge since it was created.
+    #[must_use]
+    pub fn dropped_count(&self) -> u64 {
+        self.dropped.load(Ordering::Relaxed)
+    }
+
+    /// Current number of packets sitting in this edge's queue.
+    #[must_use]
+    pub fn queue_depth(&self) -> usize {
+        self.queue.max_capacity() - self.queue.capacity()
     }
 }
 
@@ -201,5 +239,29 @@ mod tests {
         edge.try_send(Packet::new(b"first".as_slice())).unwrap();
         let overflow = edge.try_send(Packet::new(b"second".as_slice()));
         assert!(overflow.is_err());
+    }
+
+    #[test]
+    fn try_send_or_drop_counts_overflow() {
+        let (edge, _rx) = Edge::new(NodeId::new(), NodeId::new(), EdgeType::Sequential, None, 1);
+
+        assert!(edge.try_send_or_drop(Packet::new(b"first".as_slice())));
+        assert_eq!(edge.dropped_count(), 0);
+
+        assert!(!edge.try_send_or_drop(Packet::new(b"second".as_slice())));
+        assert_eq!(edge.dropped_count(), 1);
+
+        assert!(!edge.try_send_or_drop(Packet::new(b"third".as_slice())));
+        assert_eq!(edge.dropped_count(), 2);
+    }
+
+    #[test]
+    fn queue_depth_reflects_pending_packets() {
+        let (edge, _rx) = Edge::new(NodeId::new(), NodeId::new(), EdgeType::Sequential, None, 4);
+        assert_eq!(edge.queue_depth(), 0);
+
+        edge.try_send(Packet::new(b"one".as_slice())).unwrap();
+        edge.try_send(Packet::new(b"two".as_slice())).unwrap();
+        assert_eq!(edge.queue_depth(), 2);
     }
 }

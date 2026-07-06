@@ -12,10 +12,12 @@ pub mod execution;
 pub mod graph;
 pub mod metrics;
 pub mod node;
+pub mod queue;
 
 pub use condition::Condition;
 pub use edge::{Edge, EdgeType};
-pub use execution::{execute_sequential, ExecutionError};
+pub use execution::{execute_parallel, execute_sequential, ExecutionError};
 pub use graph::FlowGraph;
 pub use metrics::NodeMetrics;
 pub use node::{GraphNode, NodeConfig, NodeState};
+pub use queue::{node_queue, NodeQueueReceiver, NodeQueueSender};
