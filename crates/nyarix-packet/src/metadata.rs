@@ -15,7 +15,7 @@ pub const DEFAULT_TTL: u8 = 32;
 ///
 /// All fields are cheap to clone — they are either `Copy` types
 /// or reference-counted.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Metadata {
     // ── Identity ─────────────────────────────────────
     /// The session this packet belongs to.
@@ -44,9 +44,9 @@ pub struct Metadata {
     ///
     /// Serialized as a relative millisecond offset from the moment of
     /// encoding, then reconstructed as `Instant::now() + offset` on decode
-    /// (see [`crate::wire`]) — `Instant` itself carries no serializable
-    /// wall-clock meaning, so exact equality across an encode/decode
-    /// round-trip is not guaranteed when a deadline is set.
+    /// (see `Packet::encode`/`Packet::decode`) — `Instant` itself carries no
+    /// serializable wall-clock meaning, so exact equality across an
+    /// encode/decode round-trip is not guaranteed when a deadline is set.
     #[serde(with = "deadline_millis")]
     pub deadline: Option<Instant>,
     /// MTU hint for downstream nodes.
@@ -125,7 +125,7 @@ pub enum Reliability {
 }
 
 /// Privacy policy for obfuscation decisions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum PrivacyPolicy {
     /// No special privacy requirements.
     #[default]
