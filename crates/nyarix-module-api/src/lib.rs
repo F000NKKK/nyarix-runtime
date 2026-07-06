@@ -5,12 +5,14 @@
 //! every module — transport, crypto, obfuscation, policy, observability —
 //! implements identically. The Runtime only ever talks to `dyn Module`.
 
+pub mod capability;
 pub mod context;
 pub mod health;
 pub mod metadata;
 mod module;
 mod node;
 
+pub use capability::{Capability, CapabilityMask};
 pub use context::RuntimeContext;
 pub use health::Health;
 pub use metadata::{ModuleMetadata, ModuleType};

@@ -211,9 +211,11 @@ dependencies = [
 name = "nyarix-module-api"
 version = "0.1.0"
 dependencies = [
+ "bitflags",
  "nyarix-core",
  "nyarix-error",
  "nyarix-packet",
+ "serde",
 ]
 
 [[package]]

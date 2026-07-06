@@ -10,6 +10,8 @@ rust-version.workspace = true
 nyarix-core.workspace = true
 nyarix-error.workspace = true
 nyarix-packet.workspace = true
+bitflags.workspace = true
+serde.workspace = true
 
 [lints]
 workspace = true
