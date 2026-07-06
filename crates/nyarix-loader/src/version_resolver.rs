@@ -324,4 +324,47 @@ description = "test"
         assert!(result.resolved.is_empty());
         assert!(result.conflicts.is_empty());
     }
+
+    #[test]
+    fn a_missing_optional_dependency_is_not_a_conflict() {
+        let index = ModuleIndex::default();
+        let a = manifest_with_optional_dep("a", "metrics-plugin", "^1.0");
+
+        let result = resolve_versions([&a], &index);
+
+        assert!(result.conflicts.is_empty());
+        assert!(result.resolved.is_empty());
+        assert_eq!(result.unavailable_optional, vec!["metrics-plugin".to_string()]);
+    }
+
+    #[test]
+    fn a_present_optional_dependency_still_resolves_normally() {
+        let index = index_with_versions("metrics-plugin", &["1.0.0"]);
+        let a = manifest_with_optional_dep("a", "metrics-plugin", "^1.0");
+
+        let result = resolve_versions([&a], &index);
+
+        assert!(result.conflicts.is_empty());
+        assert!(result.unavailable_optional.is_empty());
+        assert_eq!(
+            result.resolved.get("metrics-plugin"),
+            Some(&Version::new(1, 0, 0))
+        );
+    }
+
+    #[test]
+    fn a_required_requirer_still_conflicts_even_if_another_requirer_marked_it_optional() {
+        let index = index_with_versions("crypto-core", &["1.0.0", "2.0.0"]);
+        let a = manifest_with_deps("a", &[("crypto-core", "^1.0")]);
+        let b = manifest_with_optional_dep("b", "crypto-core", "^2.0");
+
+        let result = resolve_versions([&a, &b], &index);
+
+        // "a" requires it (not optional), and no version satisfies both
+        // a's ^1.0 and b's ^2.0 — this is still a real conflict, not
+        // silently forgiven just because b marked it optional.
+        assert!(result.unavailable_optional.is_empty());
+        assert_eq!(result.conflicts.len(), 1);
+        assert_eq!(result.conflicts[0].name, "crypto-core");
+    }
 }
