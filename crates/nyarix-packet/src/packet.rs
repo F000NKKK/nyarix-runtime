@@ -333,7 +333,10 @@ mod tests {
         let drift = decoded_deadline
             .saturating_duration_since(original_deadline)
             .max(original_deadline.saturating_duration_since(decoded_deadline));
-        assert!(drift < Duration::from_millis(50), "deadline drifted by {drift:?}");
+        assert!(
+            drift < Duration::from_millis(50),
+            "deadline drifted by {drift:?}"
+        );
     }
 
     #[test]
