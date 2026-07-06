@@ -334,7 +334,10 @@ description = "test"
 
         assert!(result.conflicts.is_empty());
         assert!(result.resolved.is_empty());
-        assert_eq!(result.unavailable_optional, vec!["metrics-plugin".to_string()]);
+        assert_eq!(
+            result.unavailable_optional,
+            vec!["metrics-plugin".to_string()]
+        );
     }
 
     #[test]
