@@ -10,9 +10,7 @@ transport/crypto/obfuscation/policy module implements, the packet model
 that flows between them, and the machinery that ties it all together.
 
 Nyarix is not a VPN. It's the runtime a VPN, proxy, relay, mesh overlay, or
-gateway can all be *configurations of*. See [`view.md`](view.md) for the
-full architectural vision and [`BACKLOG.md`](BACKLOG.md) for the milestone
-breakdown this repo is built against.
+gateway can all be *configurations of*.
 
 ## Workspace layout
 
@@ -36,11 +34,11 @@ push packets through it.
 
 ## Status
 
-Early development (M0–M3 of the [backlog](BACKLOG.md)). The workspace
-builds and its test suite passes, but most crates are intentionally partial:
-gaps are documented inline (`// see #NN`) and tracked as GitHub issues
-rather than guessed at ahead of time. Don't expect a running VPN yet —
-expect a Packet model, a Module API, and the start of a Graph engine.
+Early development (milestones M0–M3). The workspace builds and its test
+suite passes, but most crates are intentionally partial: gaps are
+documented inline (`// see #NN`) and tracked as GitHub issues rather than
+guessed at ahead of time. Don't expect a running VPN yet — expect a
+Packet model, a Module API, and the start of a Graph engine.
 
 ## Building
 
