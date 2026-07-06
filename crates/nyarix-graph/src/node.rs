@@ -318,4 +318,35 @@ mod tests {
         let config = NodeConfig::default();
         assert_eq!(config.queue_capacity, 64);
     }
+
+    #[tokio::test]
+    async fn shutdown_cancels_the_context_s_event_subscriptions() {
+        use nyarix_module_api::{Event, EventBus, EventFilter};
+        use std::collections::HashMap;
+        use std::sync::{Arc as StdArc, Mutex};
+
+        let module: Arc<dyn Node> = Arc::new(StubRouter::new());
+        let mut node = GraphNode::new(NodeId::new(), module, NodeConfig::default());
+
+        let bus = StdArc::new(EventBus::default());
+        let ctx = RuntimeContext::with_event_bus(
+            nyarix_module_api::ModuleConfig::empty(),
+            HashMap::new(),
+            bus.clone(),
+        );
+
+        let received: StdArc<Mutex<Vec<Event>>> = StdArc::new(Mutex::new(Vec::new()));
+        let received_clone = StdArc::clone(&received);
+        ctx.on_event(EventFilter::All, move |event| {
+            received_clone.lock().unwrap().push(event);
+        });
+
+        node.shutdown(&ctx).unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        bus.publish(Event::new("after_shutdown"));
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        assert!(received.lock().unwrap().is_empty());
+    }
 }
