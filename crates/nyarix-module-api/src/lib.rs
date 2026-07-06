@@ -1,6 +1,16 @@
 //! Public API contract that all Nyarix modules implement.
 //!
-//! This crate will define the minimal module lifecycle contract
-//! (`metadata`, `initialize`, `process`, `shutdown`, ...). Implementation
-//! lands in milestone M2 (Module API); this crate currently only exists
-//! so the workspace resolves.
+//! The core of this crate is the [`Module`] trait: the minimal lifecycle
+//! contract (`metadata`, `initialize`, `process`, `shutdown`, ...) that
+//! every module — transport, crypto, obfuscation, policy, observability —
+//! implements identically. The Runtime only ever talks to `dyn Module`.
+
+pub mod context;
+pub mod health;
+pub mod metadata;
+mod module;
+
+pub use context::RuntimeContext;
+pub use health::Health;
+pub use metadata::{ModuleMetadata, ModuleType};
+pub use module::{Module, Result};
