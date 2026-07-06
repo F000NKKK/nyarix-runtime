@@ -11,6 +11,7 @@ nyarix-error.workspace = true
 bytes.workspace = true
 tracing.workspace = true
 parking_lot.workspace = true
+uuid.workspace = true
 
 [lints]
 workspace = true
