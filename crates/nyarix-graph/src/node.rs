@@ -151,6 +151,20 @@ impl GraphNode {
             .expect("node module Arc must be uniquely owned to process a packet")
             .process(packet)
     }
+
+    /// Call this node's module's `migrate` (see #38 hot swap).
+    ///
+    /// # Panics
+    /// Same condition as [`Self::process`] — the module `Arc` must be
+    /// uniquely owned.
+    pub fn migrate(
+        &mut self,
+        ctx: &nyarix_module_api::RuntimeContext,
+    ) -> nyarix_module_api::Result<()> {
+        Arc::get_mut(&mut self.module)
+            .expect("node module Arc must be uniquely owned to migrate")
+            .migrate(ctx)
+    }
 }
 
 impl fmt::Debug for GraphNode {
