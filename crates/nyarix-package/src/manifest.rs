@@ -123,9 +123,10 @@ impl PackageManifest {
     /// reason if `input` isn't valid TOML, doesn't match this schema, or
     /// fails [`Self::validate`].
     pub fn from_toml(input: &str) -> Result<Self, PackageError> {
-        let manifest: Self = toml::from_str(input).map_err(|source| PackageError::InvalidManifest {
-            reason: source.to_string(),
-        })?;
+        let manifest: Self =
+            toml::from_str(input).map_err(|source| PackageError::InvalidManifest {
+                reason: source.to_string(),
+            })?;
         manifest.validate()?;
         Ok(manifest)
     }
