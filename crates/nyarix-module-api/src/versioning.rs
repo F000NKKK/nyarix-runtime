@@ -94,4 +94,19 @@ mod tests {
     fn display_format() {
         assert_eq!(ApiVersion::new(1, 2).to_string(), "1.2");
     }
+
+    #[test]
+    fn parses_the_display_format_back() {
+        assert_eq!("1.2".parse::<ApiVersion>().unwrap(), ApiVersion::new(1, 2));
+    }
+
+    #[test]
+    fn rejects_a_string_without_a_dot() {
+        assert!("12".parse::<ApiVersion>().is_err());
+    }
+
+    #[test]
+    fn rejects_non_numeric_components() {
+        assert!("a.b".parse::<ApiVersion>().is_err());
+    }
 }
