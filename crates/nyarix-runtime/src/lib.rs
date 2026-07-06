@@ -22,11 +22,11 @@ pub mod shutdown;
 
 pub use cpu_pool::CpuPool;
 pub use execution_loop::{
-    initialize_all_nodes, run, run_with_timeout, shutdown_all_nodes, ExecutionLoopError,
-    DEFAULT_SHUTDOWN_TIMEOUT,
+    DEFAULT_SHUTDOWN_TIMEOUT, ExecutionLoopError, initialize_all_nodes, run, run_with_timeout,
+    shutdown_all_nodes,
 };
 pub use init::{RuntimeHandle, RuntimeInitError};
 pub use io_pool::IoPool;
 pub use nyarix_module_api::{Event, EventBus, EventFilter, EventKind};
-pub use priority::{priority_queue, PriorityReceiver, PrioritySender, TaskPriority};
+pub use priority::{PriorityReceiver, PrioritySender, TaskPriority, priority_queue};
 pub use shutdown::cancel_on_ctrl_c;

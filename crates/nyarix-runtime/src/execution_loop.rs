@@ -29,7 +29,7 @@ use nyarix_graph::FlowGraph;
 use nyarix_module_api::RuntimeContext;
 use nyarix_packet::Packet;
 use thiserror::Error;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use tokio_util::sync::CancellationToken;
 
 /// Default bound on how long graceful shutdown (draining + node

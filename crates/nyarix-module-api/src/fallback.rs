@@ -5,7 +5,7 @@
 //! is the Module Loader's job (M5, see #50 Module discovery, #57 Module
 //! instantiation), which doesn't exist yet.
 
-use crate::versioning::{is_compatible, ApiVersion};
+use crate::versioning::{ApiVersion, is_compatible};
 
 /// The outcome of resolving a module load request against the modules
 /// actually available.

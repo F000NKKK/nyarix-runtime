@@ -16,8 +16,8 @@ pub mod queue;
 
 pub use condition::Condition;
 pub use edge::{Edge, EdgeType};
-pub use execution::{execute_parallel, execute_sequential, ExecutionError};
+pub use execution::{ExecutionError, execute_parallel, execute_sequential};
 pub use graph::FlowGraph;
 pub use metrics::NodeMetrics;
 pub use node::{GraphNode, NodeConfig, NodeState};
-pub use queue::{node_queue, NodeQueueReceiver, NodeQueueSender};
+pub use queue::{NodeQueueReceiver, NodeQueueSender, node_queue};

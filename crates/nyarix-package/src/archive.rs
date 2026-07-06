@@ -5,7 +5,7 @@ use std::io::{Cursor, Read};
 use nyarix_error::PackageError;
 
 use crate::manifest::PackageManifest;
-use crate::{validate_layout, PackageMember};
+use crate::{PackageMember, validate_layout};
 
 fn io_error(source: std::io::Error) -> PackageError {
     PackageError::Io {

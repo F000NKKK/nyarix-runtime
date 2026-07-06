@@ -1,7 +1,7 @@
 //! Graph edge structure (see issue #28) and backpressure metrics (#35).
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use nyarix_core::NodeId;
 use nyarix_packet::Packet;

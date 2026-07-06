@@ -1141,11 +1141,13 @@ mod tests {
         assert_eq!(diff.added_nodes, vec![added_id]);
         assert_eq!(diff.removed_nodes, vec![removed_id]);
         assert_eq!(diff.changed_nodes, vec![b_id]);
-        assert!(diff
-            .added_edges
-            .contains(&(b_id, added_id, EdgeType::Sequential)));
-        assert!(diff
-            .removed_edges
-            .contains(&(b_id, removed_id, EdgeType::Sequential)));
+        assert!(
+            diff.added_edges
+                .contains(&(b_id, added_id, EdgeType::Sequential))
+        );
+        assert!(
+            diff.removed_edges
+                .contains(&(b_id, removed_id, EdgeType::Sequential))
+        );
     }
 }
