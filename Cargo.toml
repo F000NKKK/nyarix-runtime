@@ -8,6 +8,7 @@ members = [
     "crates/nyarix-graph",
     "crates/nyarix-module-api",
     "crates/nyarix-package",
+    "crates/nyarix-loader",
     "crates/nyarix-runtime",
     "apps/runtime-test",
 ]
@@ -28,6 +29,7 @@ nyarix-packet = { path = "crates/nyarix-packet" }
 nyarix-graph = { path = "crates/nyarix-graph" }
 nyarix-module-api = { path = "crates/nyarix-module-api" }
 nyarix-package = { path = "crates/nyarix-package" }
+nyarix-loader = { path = "crates/nyarix-loader" }
 nyarix-runtime = { path = "crates/nyarix-runtime" }
 
 # --- External dependencies ---
