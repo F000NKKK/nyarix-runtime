@@ -32,9 +32,8 @@ impl PacketPool {
     #[must_use]
     pub fn acquire(&self) -> Packet {
         let mut pool = self.inner.lock();
-        pool.pop().unwrap_or_else(|| {
-            Packet::new(crate::payload::Payload::empty())
-        })
+        pool.pop()
+            .unwrap_or_else(|| Packet::new(crate::payload::Payload::empty()))
     }
 
     /// Return a packet to the pool for reuse.

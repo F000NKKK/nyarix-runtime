@@ -14,7 +14,11 @@ impl SemVer {
     /// Create a new semantic version.
     #[must_use]
     pub const fn new(major: u32, minor: u32, patch: u32) -> Self {
-        Self { major, minor, patch }
+        Self {
+            major,
+            minor,
+            patch,
+        }
     }
 
     /// Check if `other` is compatible with `self` according to SemVer rules.

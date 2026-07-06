@@ -82,10 +82,7 @@ impl Payload {
     pub fn split_off(self, at: usize) -> (Self, Self) {
         let right = self.bytes.slice(at..);
         let left = self.bytes.slice(..at);
-        (
-            Self { bytes: left },
-            Self { bytes: right },
-        )
+        (Self { bytes: left }, Self { bytes: right })
     }
 
     /// Convert the payload into `Bytes`.
