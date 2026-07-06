@@ -21,6 +21,7 @@
 //! async task, not yet backed by dedicated thread pools.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use nyarix_core::NodeId;
 use nyarix_error::ModuleError;
@@ -30,6 +31,12 @@ use nyarix_packet::Packet;
 use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
+
+/// Default bound on how long graceful shutdown (draining + node
+/// `shutdown()` calls) is allowed to take before [`run`] gives up waiting
+/// and returns anyway (see issue #44's "таймаут на принудительное
+/// завершение").
+pub const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Error produced by the execution loop.
 #[derive(Debug, Error)]
@@ -90,25 +97,74 @@ pub async fn shutdown_all_nodes(
     first_error.map_or(Ok(()), Err)
 }
 
-/// Run the main execution loop.
+/// Run the main execution loop with [`DEFAULT_SHUTDOWN_TIMEOUT`]. See
+/// [`run_with_timeout`] for the full behavior and a way to override it.
+///
+/// # Errors
+/// Same as [`run_with_timeout`].
+pub async fn run(
+    graph: Arc<Mutex<FlowGraph>>,
+    entry: NodeId,
+    ctx: RuntimeContext,
+    source: mpsc::Receiver<Packet>,
+    sink: mpsc::Sender<Packet>,
+    shutdown: CancellationToken,
+) -> Result<(), ExecutionLoopError> {
+    run_with_timeout(
+        graph,
+        entry,
+        ctx,
+        source,
+        sink,
+        shutdown,
+        DEFAULT_SHUTDOWN_TIMEOUT,
+    )
+    .await
+}
+
+/// Run the main execution loop (see issue #43), with graceful shutdown
+/// (see issue #44) once `shutdown` is triggered, `source` closes, or
+/// `sink` is dropped:
+///
+/// 1. Stop accepting new packets — the loop simply stops calling
+///    `source.recv()` again. A `biased` `select!` makes sure a pending
+///    cancellation is noticed before an already-ready `source.recv()` is
+///    (i.e. shutdown always wins a tie, so no "one more packet" sneaks in
+///    once cancelled).
+/// 2. Drain whatever's already buffered in `source` (bounded by
+///    `shutdown_timeout`), running each through the graph same as usual
+///    — this is "processing the remainder", not just discarding it.
+/// 3. Call `shutdown()` on every node ([`shutdown_all_nodes`]), also
+///    bounded by `shutdown_timeout`.
+///
+/// If either step doesn't finish within `shutdown_timeout`, it's
+/// abandoned (logged via `tracing`) and `run` returns anyway — forced
+/// completion, per the issue's "таймаут на принудительное завершение".
+///
+/// **Not implemented**: draining a node's own `NodeQueue` (#36) lanes —
+/// only `source` (the entry point's inbound channel) is drained here;
+/// see #97 for why `NodeQueue` isn't wired into execution at all yet.
 ///
 /// # Errors
 /// Returns [`ExecutionLoopError::Initialize`] if any node fails to
 /// initialize — the loop never starts in that case. Packet-processing
-/// errors encountered *during* the loop are logged via `tracing`, not
-/// propagated: one bad packet shouldn't take down the whole Runtime.
-pub async fn run(
+/// errors encountered *during* the loop (main or draining) are logged
+/// via `tracing`, not propagated: one bad packet shouldn't take down the
+/// whole Runtime.
+pub async fn run_with_timeout(
     graph: Arc<Mutex<FlowGraph>>,
     entry: NodeId,
     ctx: RuntimeContext,
     mut source: mpsc::Receiver<Packet>,
     sink: mpsc::Sender<Packet>,
     shutdown: CancellationToken,
+    shutdown_timeout: Duration,
 ) -> Result<(), ExecutionLoopError> {
     initialize_all_nodes(&graph, &ctx).await?;
 
     loop {
         let packet = tokio::select! {
+            biased;
             () = shutdown.cancelled() => break,
             received = source.recv() => match received {
                 Some(packet) => packet,
@@ -116,30 +172,62 @@ pub async fn run(
             },
         };
 
-        let result = {
-            let mut guard = graph.lock().await;
-            nyarix_graph::execute_sequential(&mut guard, entry, packet)
-        };
-
-        match result {
-            Ok(Some(output)) => {
-                if sink.send(output).await.is_err() {
-                    tracing::warn!("execution loop sink closed; stopping");
-                    break;
-                }
-            }
-            Ok(None) => {}
-            Err(error) => {
-                tracing::warn!(%error, "packet processing failed");
-            }
+        if !process_one(&graph, entry, packet, &sink).await {
+            break;
         }
     }
 
-    if let Err(error) = shutdown_all_nodes(&graph, &ctx).await {
-        tracing::warn!(%error, "a node failed to shut down cleanly during loop exit");
+    let drain_outcome = tokio::time::timeout(shutdown_timeout, async {
+        while let Ok(packet) = source.try_recv() {
+            if !process_one(&graph, entry, packet, &sink).await {
+                break;
+            }
+        }
+    })
+    .await;
+    if drain_outcome.is_err() {
+        tracing::warn!("draining remaining packets timed out; forcing shutdown");
+    }
+
+    match tokio::time::timeout(shutdown_timeout, shutdown_all_nodes(&graph, &ctx)).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            tracing::warn!(%error, "a node failed to shut down cleanly during loop exit");
+        }
+        Err(_) => {
+            tracing::warn!("node shutdown timed out; forcing completion");
+        }
     }
 
     Ok(())
+}
+
+/// Process one packet through the graph and forward the result to
+/// `sink`. Returns `false` if the loop should stop (sink closed).
+async fn process_one(
+    graph: &Arc<Mutex<FlowGraph>>,
+    entry: NodeId,
+    packet: Packet,
+    sink: &mpsc::Sender<Packet>,
+) -> bool {
+    let result = {
+        let mut guard = graph.lock().await;
+        nyarix_graph::execute_sequential(&mut guard, entry, packet)
+    };
+
+    match result {
+        Ok(Some(output)) => {
+            if sink.send(output).await.is_err() {
+                tracing::warn!("execution loop sink closed; stopping");
+                return false;
+            }
+        }
+        Ok(None) => {}
+        Err(error) => {
+            tracing::warn!(%error, "packet processing failed");
+        }
+    }
+    true
 }
 
 #[cfg(test)]
