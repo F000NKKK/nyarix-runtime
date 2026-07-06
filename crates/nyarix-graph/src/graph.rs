@@ -6,7 +6,7 @@ use nyarix_core::NodeId;
 use nyarix_error::GraphError;
 use nyarix_module_api::NodeType;
 
-use crate::edge::Edge;
+use crate::edge::{Edge, EdgeType};
 use crate::node::GraphNode;
 
 /// In-memory storage for a Flow Graph: nodes, edges, and the adjacency
@@ -361,6 +361,268 @@ impl FlowGraph {
 
         Ok(())
     }
+
+    /// Insert `new_node` immediately after `after_id`, splicing it into
+    /// `after_id`'s single outgoing edge if it has exactly one (see issue
+    /// #37): `after_id -[old edge_type/condition]-> new_node
+    /// -[Sequential]-> old_target`. If `after_id` has no outgoing edge yet,
+    /// just connects `after_id -[Sequential]-> new_node`.
+    ///
+    /// **Not implemented here** (needs a live execution engine, which
+    /// doesn't exist yet — M4): pausing packet flow / draining in-flight
+    /// packets during the splice. This only mutates the topology; running
+    /// [`Self::validate`] afterward and coordinating with the Scheduler is
+    /// the caller's job for now (see the issue comment for a tracked
+    /// follow-up).
+    ///
+    /// # Errors
+    /// Returns [`GraphError::MissingNode`] if `after_id` doesn't exist, or
+    /// [`GraphError::BuildFailed`] if `after_id` has more than one
+    /// outgoing edge (ambiguous which one to splice into).
+    pub fn insert_after(&mut self, after_id: NodeId, new_node: GraphNode) -> Result<(), GraphError> {
+        if !self.nodes.contains_key(&after_id) {
+            return Err(GraphError::MissingNode {
+                node_id: after_id.to_string(),
+            });
+        }
+
+        let outgoing: Vec<usize> = self
+            .edges
+            .iter()
+            .enumerate()
+            .filter(|(_, edge)| edge.from() == after_id)
+            .map(|(index, _)| index)
+            .collect();
+
+        if outgoing.len() > 1 {
+            return Err(GraphError::BuildFailed {
+                reason: format!(
+                    "node {after_id} has {} outgoing edges; insert_after is ambiguous here",
+                    outgoing.len()
+                ),
+            });
+        }
+
+        let new_id = new_node.id();
+        let capacity = new_node.config().queue_capacity;
+        self.add_node(new_node);
+
+        if let Some(&index) = outgoing.first() {
+            let old_edge = self.edges.remove(index);
+            if let Some(targets) = self.adjacency.get_mut(&after_id) {
+                if let Some(pos) = targets.iter().position(|&target| target == old_edge.to()) {
+                    targets.remove(pos);
+                }
+            }
+            let (splice_in, _rx1) = Edge::new(
+                after_id,
+                new_id,
+                old_edge.edge_type(),
+                old_edge.condition().cloned(),
+                capacity,
+            );
+            let (splice_out, _rx2) =
+                Edge::new(new_id, old_edge.to(), EdgeType::Sequential, None, capacity);
+            self.connect(splice_in)?;
+            self.connect(splice_out)?;
+        } else {
+            let (edge, _rx) = Edge::new(after_id, new_id, EdgeType::Sequential, None, capacity);
+            self.connect(edge)?;
+        }
+
+        Ok(())
+    }
+
+    /// Remove a node, bridging its predecessors directly to its
+    /// successors (see issue #37) — unlike [`Self::remove_node`] (#29),
+    /// which just drops the dangling edges.
+    ///
+    /// Only supports the 1-to-many or many-to-1 case (typical for a
+    /// linear pipeline splice); if the node has more than one predecessor
+    /// *and* more than one successor, which pairs should connect is
+    /// ambiguous, so this errors instead of guessing a full cross-product.
+    /// New edges are plain `Sequential`, unconditioned — the removed
+    /// node's own incident edges' types/conditions aren't carried over
+    /// (there could be several, possibly conflicting).
+    ///
+    /// # Errors
+    /// Returns [`GraphError::MissingNode`] if `id` doesn't exist, or
+    /// [`GraphError::BuildFailed`] for the many-to-many case described
+    /// above.
+    pub fn remove_and_reconnect(&mut self, id: NodeId) -> Result<GraphNode, GraphError> {
+        if !self.nodes.contains_key(&id) {
+            return Err(GraphError::MissingNode {
+                node_id: id.to_string(),
+            });
+        }
+
+        let predecessors: Vec<NodeId> = self
+            .edges
+            .iter()
+            .filter(|edge| edge.to() == id)
+            .map(Edge::from)
+            .collect();
+        let successors: Vec<NodeId> = self
+            .edges
+            .iter()
+            .filter(|edge| edge.from() == id)
+            .map(Edge::to)
+            .collect();
+
+        if predecessors.len() > 1 && successors.len() > 1 {
+            return Err(GraphError::BuildFailed {
+                reason: format!(
+                    "node {id} has {} predecessors and {} successors; \
+                     remove_and_reconnect only supports 1-to-many or many-to-1",
+                    predecessors.len(),
+                    successors.len()
+                ),
+            });
+        }
+
+        let capacity = self
+            .node(id)
+            .map_or(crate::node::NodeConfig::DEFAULT_QUEUE_CAPACITY, |node| {
+                node.config().queue_capacity
+            });
+        let removed = self
+            .remove_node(id)
+            .ok_or_else(|| GraphError::MissingNode {
+                node_id: id.to_string(),
+            })?;
+
+        for &pred in &predecessors {
+            for &succ in &successors {
+                let (edge, _rx) = Edge::new(pred, succ, EdgeType::Sequential, None, capacity);
+                self.connect(edge)?;
+            }
+        }
+
+        Ok(removed)
+    }
+
+    /// Replace a node's module in place (see issue #38): same `NodeId`,
+    /// same edges (nothing to rewire, since edges reference the `NodeId`
+    /// not the module), new `Arc<dyn Node>`.
+    ///
+    /// The outgoing module's [`Module::migrate`](nyarix_module_api::Module::migrate)
+    /// is called first, giving it a chance to flush/prepare state — but
+    /// **its result doesn't change what happens next**: `migrate` (#16)
+    /// takes no information about what it's migrating *to*, so there's no
+    /// established way for it to actually hand internal state off to
+    /// `new_module`. This always proceeds to install `new_module`
+    /// regardless of whether `migrate` succeeded; the outcome is reported
+    /// so the caller can log/react to it.
+    ///
+    /// **Not implemented here** (same M4 dependency as [`Self::insert_after`]):
+    /// draining in-flight packets / atomicity with respect to a *running*
+    /// graph. This only swaps the stored module.
+    ///
+    /// # Errors
+    /// Returns [`GraphError::MissingNode`] if `id` doesn't exist.
+    pub fn swap_node(
+        &mut self,
+        id: NodeId,
+        new_module: std::sync::Arc<dyn nyarix_module_api::Node>,
+        ctx: &nyarix_module_api::RuntimeContext,
+    ) -> Result<SwapOutcome, GraphError> {
+        let old_node = self.nodes.get_mut(&id).ok_or_else(|| GraphError::MissingNode {
+            node_id: id.to_string(),
+        })?;
+
+        let migrate_result = old_node.migrate(ctx);
+        let config = old_node.config().clone();
+        let new_node = GraphNode::new(id, new_module, config);
+        let replaced = self
+            .nodes
+            .insert(id, new_node)
+            .expect("checked above that the node exists");
+
+        Ok(SwapOutcome {
+            replaced,
+            migrate_result,
+        })
+    }
+
+    /// Structural difference between this graph and `other` (see issue
+    /// #39): which nodes/edges were added or removed, and which nodes
+    /// kept their id but got a different module instance (e.g. via
+    /// [`Self::swap_node`]) — detected via `Arc` pointer identity, since
+    /// `dyn Node` has no general equality to compare by.
+    ///
+    /// **Not implemented here**: building the "new" graph from a
+    /// profile/stack (needs the Package/Profile system, M6/M9), migrating
+    /// per-session state between old and new graphs (no defined model for
+    /// that yet), and atomically switching a *running* graph over (M4).
+    /// This is purely a diff of two [`FlowGraph`] snapshots you already
+    /// have.
+    #[must_use]
+    pub fn diff(&self, other: &Self) -> GraphDiff {
+        let old_ids: HashSet<NodeId> = self.nodes.keys().copied().collect();
+        let new_ids: HashSet<NodeId> = other.nodes.keys().copied().collect();
+
+        let added_nodes = new_ids.difference(&old_ids).copied().collect();
+        let removed_nodes = old_ids.difference(&new_ids).copied().collect();
+        let changed_nodes = old_ids
+            .intersection(&new_ids)
+            .filter(|id| {
+                let old_module = self.nodes[id].module();
+                let new_module = &other.nodes[id].module();
+                !std::sync::Arc::ptr_eq(old_module, new_module)
+            })
+            .copied()
+            .collect();
+
+        let old_edges: HashSet<(NodeId, NodeId, EdgeType)> = self
+            .edges
+            .iter()
+            .map(|edge| (edge.from(), edge.to(), edge.edge_type()))
+            .collect();
+        let new_edges: HashSet<(NodeId, NodeId, EdgeType)> = other
+            .edges
+            .iter()
+            .map(|edge| (edge.from(), edge.to(), edge.edge_type()))
+            .collect();
+
+        let added_edges = new_edges.difference(&old_edges).copied().collect();
+        let removed_edges = old_edges.difference(&new_edges).copied().collect();
+
+        GraphDiff {
+            added_nodes,
+            removed_nodes,
+            changed_nodes,
+            added_edges,
+            removed_edges,
+        }
+    }
+}
+
+/// Outcome of [`FlowGraph::swap_node`].
+#[derive(Debug)]
+pub struct SwapOutcome {
+    /// The `GraphNode` that was replaced.
+    pub replaced: GraphNode,
+    /// Whether the outgoing module's `migrate()` succeeded — informational
+    /// only; see [`FlowGraph::swap_node`]'s docs for why it doesn't change
+    /// the outcome of the swap itself.
+    pub migrate_result: nyarix_module_api::Result<()>,
+}
+
+/// Structural difference between two [`FlowGraph`]s, see
+/// [`FlowGraph::diff`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GraphDiff {
+    /// Nodes present in the new graph but not the old one.
+    pub added_nodes: Vec<NodeId>,
+    /// Nodes present in the old graph but not the new one.
+    pub removed_nodes: Vec<NodeId>,
+    /// Nodes present in both graphs but whose module instance differs.
+    pub changed_nodes: Vec<NodeId>,
+    /// Edges (as `(from, to, edge_type)`) present in the new graph but not
+    /// the old one.
+    pub added_edges: Vec<(NodeId, NodeId, EdgeType)>,
+    /// Edges present in the old graph but not the new one.
+    pub removed_edges: Vec<(NodeId, NodeId, EdgeType)>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
