@@ -11,6 +11,8 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use nyarix_core::PacketId;
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::metadata::Metadata;
 use crate::payload::Payload;
@@ -165,6 +167,65 @@ impl Packet {
         meta.ttl -= 1;
         meta.ttl > 0
     }
+
+    /// Encode this packet into a compact binary format for passing it
+    /// between graph nodes within the same Runtime process.
+    ///
+    /// This is **not** a network wire format — it has no versioning or
+    /// cross-platform stability guarantees, and its only consumer is
+    /// [`Packet::decode`].
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        let wire = PacketWire {
+            id: self.inner.id,
+            payload: self.inner.payload.as_bytes().to_vec(),
+            metadata: self.inner.metadata.clone(),
+            tags: self.inner.tags,
+        };
+        bincode::serialize(&wire).expect("packet encoding does not fail")
+    }
+
+    /// Decode a packet previously produced by [`Packet::encode`].
+    ///
+    /// # Errors
+    /// Returns [`DecodeError`] if `buf` is not a validly encoded packet.
+    pub fn decode(buf: &[u8]) -> Result<Self, DecodeError> {
+        let wire: PacketWire = bincode::deserialize(buf)?;
+        Ok(Self {
+            inner: Arc::new(PacketInner {
+                id: wire.id,
+                payload: Payload::from_vec(wire.payload),
+                metadata: wire.metadata,
+                tags: wire.tags,
+            }),
+        })
+    }
+}
+
+/// Wire representation used by [`Packet::encode`]/[`Packet::decode`].
+#[derive(Serialize, Deserialize)]
+struct PacketWire {
+    id: PacketId,
+    payload: Vec<u8>,
+    metadata: Metadata,
+    tags: Tags,
+}
+
+/// Error returned by [`Packet::decode`] when a buffer is not a validly
+/// encoded packet.
+#[derive(Debug, Error)]
+#[error("failed to decode packet: {0}")]
+pub struct DecodeError(#[from] bincode::Error);
+
+impl PartialEq for Packet {
+    /// Structural equality by value (id, payload bytes, metadata, tags) —
+    /// not `Arc` pointer identity.
+    fn eq(&self, other: &Self) -> bool {
+        self.inner.id == other.inner.id
+            && self.inner.payload == other.inner.payload
+            && self.inner.metadata == other.inner.metadata
+            && self.inner.tags == other.inner.tags
+    }
 }
 
 impl fmt::Debug for Packet {
@@ -243,5 +304,40 @@ mod tests {
         let pkt = Packet::new(Payload::empty());
         assert!(pkt.is_empty());
         assert_eq!(pkt.len(), 0);
+    }
+
+    #[test]
+    fn encode_decode_round_trip() {
+        let mut pkt = Packet::new(b"hello world".as_slice());
+        pkt.tag(Tag::Interactive);
+        pkt.metadata_mut().priority = 200;
+
+        let encoded = pkt.encode();
+        let decoded = Packet::decode(&encoded).unwrap();
+
+        assert_eq!(decoded, pkt);
+        assert_eq!(decoded.data(), pkt.data());
+    }
+
+    #[test]
+    fn encode_decode_preserves_deadline_approximately() {
+        use std::time::{Duration, Instant};
+
+        let mut pkt = Packet::new(b"data".as_slice());
+        pkt.metadata_mut().deadline = Some(Instant::now() + Duration::from_secs(5));
+
+        let decoded = Packet::decode(&pkt.encode()).unwrap();
+
+        let original_deadline = pkt.metadata().deadline.unwrap();
+        let decoded_deadline = decoded.metadata().deadline.unwrap();
+        let drift = decoded_deadline
+            .saturating_duration_since(original_deadline)
+            .max(original_deadline.saturating_duration_since(decoded_deadline));
+        assert!(drift < Duration::from_millis(50), "deadline drifted by {drift:?}");
+    }
+
+    #[test]
+    fn decode_rejects_garbage() {
+        assert!(Packet::decode(&[0xff, 0x00, 0x13, 0x37]).is_err());
     }
 }

@@ -19,7 +19,7 @@ pub mod tags;
 mod packet;
 
 pub use metadata::Metadata;
-pub use packet::Packet;
+pub use packet::{DecodeError, Packet};
 pub use payload::Payload;
 pub use pool::PacketPool;
 pub use tags::Tag;

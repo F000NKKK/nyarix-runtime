@@ -3,10 +3,22 @@
 version = 3
 
 [[package]]
+name = "bincode"
+version = "1.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "bitflags"
 version = "2.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4388bee8683e3d04af747c73422af53102d2bd24d9eadb6cbc100baef4b43f8"
+dependencies = [
+ "serde_core",
+]
 
 [[package]]
 name = "bumpalo"
@@ -172,6 +184,7 @@ dependencies = [
  "bytes",
  "nyarix-error",
  "parking_lot",
+ "serde",
  "tracing",
  "uuid",
 ]
@@ -207,12 +220,15 @@ dependencies = [
 name = "nyarix-packet"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "bitflags",
  "bytes",
  "nyarix-core",
  "nyarix-error",
  "parking_lot",
+ "serde",
  "smallvec",
+ "thiserror",
  "tracing",
 ]
 
