@@ -10,7 +10,7 @@ bitflags! {
     ///
     /// Tags are used by router nodes, policy engines, and QoS
     /// to determine how a packet should be handled.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
     pub struct Tags: u32 {
         // ── Traffic class ──────────────────────────
         /// Interactive traffic (low latency, e.g., VoIP, gaming).

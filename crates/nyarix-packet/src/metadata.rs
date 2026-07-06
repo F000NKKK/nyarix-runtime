@@ -6,6 +6,7 @@
 use std::time::Instant;
 
 use nyarix_core::{FlowId, ModuleId, NodeId, RouteId, SessionId, StreamId};
+use serde::{Deserialize, Serialize};
 
 /// Default TTL (time-to-live) for packets traversing the graph.
 pub const DEFAULT_TTL: u8 = 32;
@@ -14,7 +15,7 @@ pub const DEFAULT_TTL: u8 = 32;
 ///
 /// All fields are cheap to clone — they are either `Copy` types
 /// or reference-counted.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Metadata {
     // ── Identity ─────────────────────────────────────
     /// The session this packet belongs to.
@@ -40,6 +41,13 @@ pub struct Metadata {
     /// Priority level (0 = lowest, 255 = highest).
     pub priority: u8,
     /// Deadline for this packet (wall clock).
+    ///
+    /// Serialized as a relative millisecond offset from the moment of
+    /// encoding, then reconstructed as `Instant::now() + offset` on decode
+    /// (see [`crate::wire`]) — `Instant` itself carries no serializable
+    /// wall-clock meaning, so exact equality across an encode/decode
+    /// round-trip is not guaranteed when a deadline is set.
+    #[serde(with = "deadline_millis")]
     pub deadline: Option<Instant>,
     /// MTU hint for downstream nodes.
     pub mtu_hint: Option<u16>,
@@ -66,8 +74,33 @@ pub struct Metadata {
     pub capability_mask: u64,
 }
 
+/// Serde helper: encodes `Option<Instant>` as a relative millisecond offset.
+mod deadline_millis {
+    use std::time::{Duration, Instant};
+
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub(super) fn serialize<S: Serializer>(
+        value: &Option<Instant>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        let millis_from_now = value.map(|deadline| {
+            let now = Instant::now();
+            u64::try_from(deadline.saturating_duration_since(now).as_millis()).unwrap_or(u64::MAX)
+        });
+        millis_from_now.serialize(serializer)
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<Instant>, D::Error> {
+        let millis_from_now = Option::<u64>::deserialize(deserializer)?;
+        Ok(millis_from_now.map(|ms| Instant::now() + Duration::from_millis(ms)))
+    }
+}
+
 /// The role of a node in the network topology.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Role {
     /// Client — originates user traffic.
     Client,
@@ -80,7 +113,7 @@ pub enum Role {
 }
 
 /// Reliability requirement.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum Reliability {
     /// Best-effort delivery (UDP-like).
     #[default]
