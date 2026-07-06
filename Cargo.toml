@@ -45,6 +45,7 @@ strum = { version = "0.27", features = ["derive"] }
 bitflags = { version = "2", features = ["serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 bincode = "1"
+semver = { version = "1", features = ["serde"] }
 
 # --- Dev dependencies ---
 criterion = "0.5"
