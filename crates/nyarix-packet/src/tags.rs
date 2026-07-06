@@ -138,23 +138,41 @@ impl Tags {
 /// Individual tags (for ergonomic use without bitflags syntax).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Tag {
+    /// Interactive traffic (low latency, e.g., VoIP, gaming).
     Interactive,
+    /// Bulk data transfer (high throughput, latency-tolerant).
     Bulk,
+    /// Control plane traffic (handshake, key exchange, routing).
     Control,
+    /// Diagnostic / introspection traffic.
     Diagnostic,
+    /// Initial handshake packet.
     Handshake,
+    /// Keep-alive / heartbeat.
     Heartbeat,
+    /// Key rotation / rekey.
     Rekey,
+    /// Graceful shutdown signal.
     Shutdown,
+    /// Roaming — the network interface changed.
     Roaming,
+    /// Fallback — the primary path failed, using alternative.
     Fallback,
+    /// Retransmission of a previously sent packet.
     Retransmit,
+    /// Packet is fragmented (more fragments follow).
     Fragment,
+    /// Last fragment in a series.
     LastFragment,
+    /// High priority — expedite processing.
     HighPriority,
+    /// Low priority — can be delayed or dropped.
     LowPriority,
+    /// Initial packet of a new flow.
     FlowStart,
+    /// Final packet of a flow.
     FlowEnd,
+    /// The packet should be processed locally, not forwarded.
     LocalOnly,
 }
 
