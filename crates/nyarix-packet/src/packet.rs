@@ -10,7 +10,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use nyarix_core::PacketId;
+use nyarix_core::{FlowId, PacketId};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -22,12 +22,10 @@ use crate::tags::Tags;
 ///
 /// `Packet` uses `Arc` internally for cheap cloning — when a node
 /// only needs to read or mutate metadata, the payload is shared.
-#[derive(Clone)]
 pub struct Packet {
     inner: Arc<PacketInner>,
 }
 
-#[derive(Clone)]
 struct PacketInner {
     id: PacketId,
     payload: Payload,
@@ -35,31 +33,53 @@ struct PacketInner {
     tags: Tags,
 }
 
+impl Clone for PacketInner {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id,
+            payload: self.payload.clone(),
+            metadata: self.metadata.clone(),
+            tags: self.tags,
+        }
+    }
+}
+
+impl Drop for PacketInner {
+    fn drop(&mut self) {
+        tracing::trace!(packet_id = %self.id, "packet dropped");
+    }
+}
+
 impl Packet {
+    /// Wrap a freshly built [`PacketInner`], emitting the creation tracing
+    /// event exactly once per underlying allocation.
+    fn from_inner(inner: PacketInner) -> Self {
+        tracing::trace!(packet_id = %inner.id, "packet created");
+        Self {
+            inner: Arc::new(inner),
+        }
+    }
+
     /// Create a new packet with the given payload.
     #[must_use]
     pub fn new(payload: impl Into<Payload>) -> Self {
-        Self {
-            inner: Arc::new(PacketInner {
-                id: PacketId::new(),
-                payload: payload.into(),
-                metadata: Metadata::new(),
-                tags: Tags::new(),
-            }),
-        }
+        Self::from_inner(PacketInner {
+            id: PacketId::new(),
+            payload: payload.into(),
+            metadata: Metadata::new(),
+            tags: Tags::new(),
+        })
     }
 
     /// Create a new packet with full metadata.
     #[must_use]
     pub fn with_metadata(payload: impl Into<Payload>, metadata: Metadata) -> Self {
-        Self {
-            inner: Arc::new(PacketInner {
-                id: PacketId::new(),
-                payload: payload.into(),
-                metadata,
-                tags: Tags::new(),
-            }),
-        }
+        Self::from_inner(PacketInner {
+            id: PacketId::new(),
+            payload: payload.into(),
+            metadata,
+            tags: Tags::new(),
+        })
     }
 
     /// Get the unique packet identifier.
@@ -191,14 +211,31 @@ impl Packet {
     /// Returns [`DecodeError`] if `buf` is not a validly encoded packet.
     pub fn decode(buf: &[u8]) -> Result<Self, DecodeError> {
         let wire: PacketWire = bincode::deserialize(buf)?;
-        Ok(Self {
-            inner: Arc::new(PacketInner {
-                id: wire.id,
-                payload: Payload::from_vec(wire.payload),
-                metadata: wire.metadata,
-                tags: wire.tags,
-            }),
-        })
+        Ok(Self::from_inner(PacketInner {
+            id: wire.id,
+            payload: Payload::from_vec(wire.payload),
+            metadata: wire.metadata,
+            tags: wire.tags,
+        }))
+    }
+
+    /// The flow-level identifier that correlates this packet with every
+    /// other packet on the same logical flow, for end-to-end tracing across
+    /// graph hops.
+    #[must_use]
+    pub fn trace_id(&self) -> FlowId {
+        self.inner.metadata.flow_id
+    }
+}
+
+impl Clone for Packet {
+    /// Cheap `Arc` clone — emits a tracing event so packet fan-out
+    /// (e.g. broadcast nodes) is observable.
+    fn clone(&self) -> Self {
+        tracing::trace!(packet_id = %self.inner.id, "packet cloned");
+        Self {
+            inner: Arc::clone(&self.inner),
+        }
     }
 }
 
@@ -236,6 +273,22 @@ impl fmt::Debug for Packet {
             .field("metadata", &self.inner.metadata)
             .field("tags", &self.inner.tags)
             .finish()
+    }
+}
+
+impl fmt::Display for Packet {
+    /// Human-readable one-liner for logs, e.g.
+    /// `Packet[0199...] 42B flow=0198... ttl=32 tags=(0x1)`.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Packet[{}] {}B flow={} ttl={} tags={:?}",
+            self.inner.id,
+            self.inner.payload.len(),
+            self.inner.metadata.flow_id,
+            self.inner.metadata.ttl,
+            self.inner.tags
+        )
     }
 }
 
@@ -304,6 +357,24 @@ mod tests {
         let pkt = Packet::new(Payload::empty());
         assert!(pkt.is_empty());
         assert_eq!(pkt.len(), 0);
+    }
+
+    #[test]
+    fn display_is_human_readable() {
+        let pkt = Packet::new(b"hello".as_slice());
+        let rendered = pkt.to_string();
+        assert!(rendered.starts_with("Packet["));
+        assert!(rendered.contains("5B"));
+        assert!(rendered.contains(&pkt.id().to_string()));
+    }
+
+    #[test]
+    fn trace_id_matches_flow() {
+        let pkt = Packet::new(b"data".as_slice());
+        assert_eq!(pkt.trace_id(), pkt.metadata().flow_id);
+
+        let clone = pkt.clone();
+        assert_eq!(clone.trace_id(), pkt.trace_id());
     }
 
     #[test]
