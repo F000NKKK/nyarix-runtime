@@ -73,6 +73,7 @@ impl PackageBuilder {
 /// [`Self::open`]. Fetch one with [`Self::read_entry`] when actually
 /// needed; this is the "read manifest without full unpack" the issue
 /// asks for.
+#[derive(Debug)]
 pub struct PackageReader {
     /// The decompressed `tar` stream, kept so [`Self::read_entry`] can
     /// re-scan it on demand instead of holding every entry's bytes.
