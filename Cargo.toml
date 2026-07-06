@@ -51,6 +51,8 @@ chrono = { version = "0.4", features = ["serde"] }
 bincode = "1"
 semver = { version = "1", features = ["serde"] }
 rayon = "1"
+tar = "0.4"
+zstd = "0.13"
 
 # --- Dev dependencies ---
 criterion = "0.5"

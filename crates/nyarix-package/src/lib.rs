@@ -8,20 +8,17 @@
 //!   the archive, absent for unsigned/`unknown`-trust packages (#63)
 //!
 //! **Scope note:** this crate defines the format's *structural contract*
-//! — the format version and which top-level members are required vs.
-//! optional, plus [`validate_layout`] to check a candidate archive
-//! against that contract, and [`manifest::PackageManifest`] for parsing
-//! `manifest.toml` itself (#59). It deliberately does **not** implement:
-//! - actually reading/writing `tar`+`zstd` archives (#60, Package
-//!   pack/unpack) — [`validate_layout`] takes a plain list of member
-//!   paths precisely so it doesn't need a real archive reader yet;
-//! - Ed25519 signing/verification (#61/#62).
-//!
-//! Those build on top of the contract this crate defines, once each is
-//! its own issue's turn.
+//! ([`validate_layout`]), parses `manifest.toml` ([`manifest::PackageManifest`],
+//! #59), and packs/unpacks the archive itself ([`archive::PackageBuilder`]/
+//! [`archive::PackageReader`], #60). It deliberately does **not**
+//! implement Ed25519 signing/verification (#61/#62) or trust levels
+//! (#63) — those build on top of what's here, once each is its own
+//! issue's turn.
 
+pub mod archive;
 pub mod manifest;
 
+pub use archive::{PackageBuilder, PackageReader};
 pub use manifest::{Capabilities, PackageInfo, PackageManifest, Platforms};
 
 use nyarix_error::PackageError;
@@ -91,9 +88,9 @@ impl PackageMember {
 /// `.nyp` archive) satisfy the format's structural contract: every
 /// [`PackageMember::required`] member is present.
 ///
-/// Takes plain path strings rather than a real archive reader — see this
-/// crate's scope note — so it can be exercised now, ahead of #60's actual
-/// `tar`+`zstd` reader, and reused by it once that exists.
+/// Takes plain path strings rather than a real archive, so it doesn't
+/// need one to be exercised — [`archive::PackageReader::open`] (#60)
+/// calls this with the paths it reads out of a real `tar` archive.
 ///
 /// # Errors
 /// Returns [`PackageError::MissingMember`] naming the first required
