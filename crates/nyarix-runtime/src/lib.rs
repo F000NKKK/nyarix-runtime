@@ -6,14 +6,17 @@
 //! graceful shutdown (#44, with draining and a forced-completion
 //! timeout). [`IoPool`] (#45) and [`CpuPool`] (#46) are the Scheduler's
 //! two worker pools, isolating I/O-bound and CPU-bound work from each
-//! other. The rest (module loader, dependency resolver, task priorities,
-//! metrics) are still their own later milestone issues.
+//! other, and [`TaskPriority`] / [`priority::priority_queue`] (#47) is
+//! the Scheduler's priority model and queue primitive. The rest (module
+//! loader, dependency resolver, metrics) are still their own later
+//! milestone issues.
 
 pub mod cpu_pool;
 pub mod event;
 pub mod execution_loop;
 pub mod init;
 pub mod io_pool;
+pub mod priority;
 pub mod shutdown;
 
 pub use cpu_pool::CpuPool;
@@ -24,4 +27,5 @@ pub use execution_loop::{
 };
 pub use init::{RuntimeHandle, RuntimeInitError};
 pub use io_pool::IoPool;
+pub use priority::{priority_queue, PriorityReceiver, PrioritySender, TaskPriority};
 pub use shutdown::cancel_on_ctrl_c;
