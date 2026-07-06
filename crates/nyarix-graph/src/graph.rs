@@ -934,4 +934,182 @@ mod tests {
             other => panic!("expected BuildFailed error, got {other:?}"),
         }
     }
+
+    #[test]
+    fn insert_after_splices_into_single_outgoing_edge() {
+        let mut graph = FlowGraph::new();
+        let a = node("source", NodeType::Source);
+        let c = node("sink", NodeType::Sink);
+        let (a_id, c_id) = (a.id(), c.id());
+        graph.add_node(a);
+        graph.add_node(c);
+        let (edge, _rx) = Edge::new(a_id, c_id, EdgeType::Sequential, None, 8);
+        graph.connect(edge).unwrap();
+
+        let b = node("middle", NodeType::Transformer);
+        let b_id = b.id();
+        graph.insert_after(a_id, b).unwrap();
+
+        assert_eq!(graph.edge_count(), 2);
+        assert_eq!(graph.find_path(a_id, c_id), Some(vec![a_id, b_id, c_id]));
+    }
+
+    #[test]
+    fn insert_after_with_no_outgoing_edge_just_connects() {
+        let mut graph = FlowGraph::new();
+        let a = node("source", NodeType::Source);
+        let a_id = a.id();
+        graph.add_node(a);
+
+        let b = node("middle", NodeType::Transformer);
+        let b_id = b.id();
+        graph.insert_after(a_id, b).unwrap();
+
+        assert_eq!(graph.find_path(a_id, b_id), Some(vec![a_id, b_id]));
+    }
+
+    #[test]
+    fn insert_after_rejects_ambiguous_branch_point() {
+        let mut graph = FlowGraph::new();
+        let a = node("router", NodeType::Router);
+        let b = node("branch-1", NodeType::Sink);
+        let c = node("branch-2", NodeType::Sink);
+        let (a_id, b_id, c_id) = (a.id(), b.id(), c.id());
+        graph.add_node(a);
+        graph.add_node(b);
+        graph.add_node(c);
+        let (e1, _rx1) = Edge::new(a_id, b_id, EdgeType::Sequential, None, 8);
+        let (e2, _rx2) = Edge::new(a_id, c_id, EdgeType::Sequential, None, 8);
+        graph.connect(e1).unwrap();
+        graph.connect(e2).unwrap();
+
+        let new_node = node("new", NodeType::Transformer);
+        assert!(matches!(
+            graph.insert_after(a_id, new_node),
+            Err(GraphError::BuildFailed { .. })
+        ));
+    }
+
+    #[test]
+    fn remove_and_reconnect_bridges_predecessor_to_successor() {
+        let mut graph = FlowGraph::new();
+        let a = node("source", NodeType::Source);
+        let b = node("middle", NodeType::Transformer);
+        let c = node("sink", NodeType::Sink);
+        let (a_id, b_id, c_id) = (a.id(), b.id(), c.id());
+        graph.add_node(a);
+        graph.add_node(b);
+        graph.add_node(c);
+        let (e1, _rx1) = Edge::new(a_id, b_id, EdgeType::Sequential, None, 8);
+        let (e2, _rx2) = Edge::new(b_id, c_id, EdgeType::Sequential, None, 8);
+        graph.connect(e1).unwrap();
+        graph.connect(e2).unwrap();
+
+        graph.remove_and_reconnect(b_id).unwrap();
+
+        assert_eq!(graph.node_count(), 2);
+        assert_eq!(graph.find_path(a_id, c_id), Some(vec![a_id, c_id]));
+    }
+
+    #[test]
+    fn remove_and_reconnect_rejects_many_to_many() {
+        let mut graph = FlowGraph::new();
+        let a1 = node("source-1", NodeType::Source);
+        let a2 = node("source-2", NodeType::Source);
+        let hub = node("hub", NodeType::Aggregator);
+        let b1 = node("sink-1", NodeType::Sink);
+        let b2 = node("sink-2", NodeType::Sink);
+        let (a1_id, a2_id, hub_id, b1_id, b2_id) =
+            (a1.id(), a2.id(), hub.id(), b1.id(), b2.id());
+        graph.add_node(a1);
+        graph.add_node(a2);
+        graph.add_node(hub);
+        graph.add_node(b1);
+        graph.add_node(b2);
+        for (from, to) in [(a1_id, hub_id), (a2_id, hub_id), (hub_id, b1_id), (hub_id, b2_id)] {
+            let (edge, _rx) = Edge::new(from, to, EdgeType::Sequential, None, 8);
+            graph.connect(edge).unwrap();
+        }
+
+        assert!(matches!(
+            graph.remove_and_reconnect(hub_id),
+            Err(GraphError::BuildFailed { .. })
+        ));
+    }
+
+    #[test]
+    fn swap_node_replaces_module_keeps_edges() {
+        let mut graph = FlowGraph::new();
+        let a = node("source", NodeType::Source);
+        let b = node("old", NodeType::Transformer);
+        let c = node("sink", NodeType::Sink);
+        let (a_id, b_id, c_id) = (a.id(), b.id(), c.id());
+        graph.add_node(a);
+        graph.add_node(b);
+        graph.add_node(c);
+        let (e1, _rx1) = Edge::new(a_id, b_id, EdgeType::Sequential, None, 8);
+        let (e2, _rx2) = Edge::new(b_id, c_id, EdgeType::Sequential, None, 8);
+        graph.connect(e1).unwrap();
+        graph.connect(e2).unwrap();
+
+        let new_module: Arc<dyn Node> = Arc::new(StubNode::new("new", NodeType::Transformer));
+        let ctx = RuntimeContext::empty();
+        let outcome = graph.swap_node(b_id, new_module, &ctx).unwrap();
+
+        assert!(outcome.migrate_result.is_ok());
+        assert_eq!(outcome.replaced.module().metadata().name, "old");
+        assert_eq!(
+            graph.node(b_id).unwrap().module().metadata().name,
+            "new"
+        );
+        // Edges are untouched: the path still exists under the same id.
+        assert_eq!(graph.find_path(a_id, c_id), Some(vec![a_id, b_id, c_id]));
+    }
+
+    #[test]
+    fn swap_node_rejects_missing_node() {
+        let mut graph = FlowGraph::new();
+        let new_module: Arc<dyn Node> = Arc::new(StubNode::new("new", NodeType::Transformer));
+        let ctx = RuntimeContext::empty();
+        assert!(matches!(
+            graph.swap_node(NodeId::new(), new_module, &ctx),
+            Err(GraphError::MissingNode { .. })
+        ));
+    }
+
+    #[test]
+    fn diff_reports_added_removed_and_changed() {
+        let mut old_graph = FlowGraph::new();
+        let a = node("source", NodeType::Source);
+        let b = node("stays", NodeType::Transformer);
+        let removed_node = node("removed", NodeType::Sink);
+        let (a_id, b_id, removed_id) = (a.id(), b.id(), removed_node.id());
+        old_graph.add_node(a);
+        old_graph.add_node(b);
+        old_graph.add_node(removed_node);
+        let (e1, _rx1) = Edge::new(a_id, b_id, EdgeType::Sequential, None, 8);
+        let (e2, _rx2) = Edge::new(b_id, removed_id, EdgeType::Sequential, None, 8);
+        old_graph.connect(e1).unwrap();
+        old_graph.connect(e2).unwrap();
+
+        let mut new_graph = FlowGraph::new();
+        let a2 = node("source", NodeType::Source);
+        let b2 = node("stays-changed", NodeType::Transformer);
+        let added_node = node("added", NodeType::Sink);
+        new_graph.add_node(GraphNode::new(a_id, Arc::clone(a2.module()), a2.config().clone()));
+        new_graph.add_node(GraphNode::new(b_id, Arc::clone(b2.module()), b2.config().clone()));
+        let added_id = added_node.id();
+        new_graph.add_node(added_node);
+        let (e3, _rx3) = Edge::new(a_id, b_id, EdgeType::Sequential, None, 8);
+        let (e4, _rx4) = Edge::new(b_id, added_id, EdgeType::Sequential, None, 8);
+        new_graph.connect(e3).unwrap();
+        new_graph.connect(e4).unwrap();
+
+        let diff = old_graph.diff(&new_graph);
+        assert_eq!(diff.added_nodes, vec![added_id]);
+        assert_eq!(diff.removed_nodes, vec![removed_id]);
+        assert_eq!(diff.changed_nodes, vec![b_id]);
+        assert!(diff.added_edges.contains(&(b_id, added_id, EdgeType::Sequential)));
+        assert!(diff.removed_edges.contains(&(b_id, removed_id, EdgeType::Sequential)));
+    }
 }
