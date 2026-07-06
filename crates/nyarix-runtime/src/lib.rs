@@ -4,18 +4,24 @@
 //! live subsystem; [`execution_loop::run`] (#43) is the main packet loop,
 //! tying together graph initialization, `execute_sequential`, and
 //! graceful shutdown (#44, with draining and a forced-completion
-//! timeout). The rest (module loader, dependency resolver, scheduler
-//! thread pools, metrics) are still their own later milestone issues.
+//! timeout). [`IoPool`] (#45) and [`CpuPool`] (#46) are the Scheduler's
+//! two worker pools, isolating I/O-bound and CPU-bound work from each
+//! other. The rest (module loader, dependency resolver, task priorities,
+//! metrics) are still their own later milestone issues.
 
+pub mod cpu_pool;
 pub mod event;
 pub mod execution_loop;
 pub mod init;
+pub mod io_pool;
 pub mod shutdown;
 
+pub use cpu_pool::CpuPool;
 pub use event::{Event, EventBus, EventFilter, EventKind};
 pub use execution_loop::{
     initialize_all_nodes, run, run_with_timeout, shutdown_all_nodes, ExecutionLoopError,
     DEFAULT_SHUTDOWN_TIMEOUT,
 };
 pub use init::{RuntimeHandle, RuntimeInitError};
+pub use io_pool::IoPool;
 pub use shutdown::cancel_on_ctrl_c;
