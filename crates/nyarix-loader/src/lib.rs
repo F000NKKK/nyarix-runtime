@@ -1,17 +1,24 @@
-//! Module discovery: finding `.nyp` packages to load (see issue #50).
+//! Module discovery: finding `.nyp` packages to load (see issue #50), and
+//! building a dependency graph over what was found (#53).
 //!
-//! **Scope note:** this crate finds and indexes packages — it does not
-//! resolve dependencies between them (#53), pick compatible versions
-//! (#54), or actually instantiate a module (#57). Those consume
-//! [`ScanReport`]/[`ModuleIndex`] once they exist.
+//! **Scope note:** this crate finds, indexes, and orders packages by
+//! dependency — it does not pick which concrete version satisfies a
+//! dependency requirement (#54), detect version/API conflicts (#55),
+//! handle optional dependencies (#56), or actually instantiate a module
+//! (#57). Those consume [`ScanReport`]/[`ModuleIndex`]/[`DependencyGraph`]
+//! once they exist.
 
+pub mod dependency_graph;
+
+pub use dependency_graph::{DependencyCycle, DependencyGraph};
+
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use nyarix_error::PackageError;
 use nyarix_package::PackageReader;
 use semver::Version;
-use std::collections::HashMap;
 
 /// A `.nyp` package found on disk, with its parsed manifest already
 /// available (see [`nyarix_package::PackageReader::open`], which parses

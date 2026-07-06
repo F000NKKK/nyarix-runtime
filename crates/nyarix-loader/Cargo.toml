@@ -10,6 +10,7 @@ rust-version.workspace = true
 nyarix-error.workspace = true
 nyarix-package.workspace = true
 semver.workspace = true
+thiserror.workspace = true
 
 [lints]
 workspace = true
