@@ -285,7 +285,8 @@ supported = ["linux", "windows", "macos", "android"]
         assert_eq!(manifest.package.description, "UDP transport");
 
         let dep = manifest.dependencies.get("nyarix-crypto-core").unwrap();
-        assert_eq!(dep, &VersionReq::parse("^0.1").unwrap());
+        assert_eq!(dep.version_req, VersionReq::parse("^0.1").unwrap());
+        assert!(!dep.optional);
 
         assert_eq!(manifest.capabilities.required, vec![Capability::Network]);
         assert_eq!(
