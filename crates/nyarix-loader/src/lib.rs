@@ -1,18 +1,22 @@
 //! Module discovery: finding `.nyp` packages to load (see issue #50),
-//! building a dependency graph over what was found (#53), and picking a
-//! concrete version per dependency (#54).
+//! building a dependency graph over what was found (#53), picking a
+//! concrete version per dependency (#54), and categorizing conflicts
+//! with human-readable messages (#55).
 //!
-//! **Scope note:** this crate finds, indexes, orders, and version-resolves
-//! packages — it does not decide whether an unresolved dependency is
-//! fatal or categorize *why* (that's Conflict detection, #55), handle
-//! `optional = true` dependencies specially (#56), or actually
+//! **Scope note:** this crate finds, indexes, orders, version-resolves,
+//! and diagnoses conflicts among packages — it does not treat
+//! `optional = true` dependencies specially (#56, so every
+//! [`Conflict::MissingDependency`] here is reported regardless of
+//! whether the dependency was actually optional), or actually
 //! instantiate a module (#57). Those consume
-//! [`ScanReport`]/[`ModuleIndex`]/[`DependencyGraph`]/[`ResolvedVersions`]
-//! once they exist.
+//! [`ScanReport`]/[`ModuleIndex`]/[`DependencyGraph`]/[`ResolvedVersions`]/
+//! [`Conflict`] once they exist.
 
+pub mod conflict;
 pub mod dependency_graph;
 pub mod version_resolver;
 
+pub use conflict::{Conflict, detect_conflicts};
 pub use dependency_graph::{DependencyCycle, DependencyGraph};
 pub use version_resolver::{Requirement, ResolvedVersions, VersionConflict, resolve_versions};
 
