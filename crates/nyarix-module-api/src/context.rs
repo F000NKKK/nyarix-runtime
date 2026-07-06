@@ -310,6 +310,4 @@ mod tests {
 
         assert!(received.lock().unwrap().is_empty());
     }
-
-    use std::sync::Mutex;
 }
