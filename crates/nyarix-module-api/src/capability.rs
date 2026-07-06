@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 
 /// A single capability a module may require or provide.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Capability {
     /// Read/write access to the filesystem.
     Filesystem,
@@ -147,6 +148,18 @@ impl CapabilityMask {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn serializes_as_lowercase_matching_manifest_schema() {
+        #[derive(Debug, PartialEq, Serialize, Deserialize)]
+        struct Wrapper {
+            required: Vec<Capability>,
+        }
+
+        // manifest.toml's `[capabilities] required = ["network"]` (#59).
+        let parsed: Wrapper = toml::from_str("required = [\"network\"]").unwrap();
+        assert_eq!(parsed.required, vec![Capability::Network]);
+    }
 
     #[test]
     fn single_capability_round_trips_through_mask() {

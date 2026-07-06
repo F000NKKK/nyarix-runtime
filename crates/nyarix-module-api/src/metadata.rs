@@ -9,13 +9,16 @@
 //! #21 fully specifies) — it needs Sandbox design (M7, #75) before its shape
 //! can be more than a guess.
 
+use serde::{Deserialize, Serialize};
+
 use crate::capability::Capability;
 use crate::platform::Platform;
 use crate::resource_limits::ResourceLimits;
 use crate::versioning::ApiVersion;
 
 /// The functional category of a module.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ModuleType {
     /// Delivers packets between parties (QUIC, UDP, TCP, WebSocket, ...).
     Transport,

@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// The platform the Runtime is executing on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Platform {
     /// Linux (desktop/server).
     Linux,
@@ -51,5 +52,24 @@ mod tests {
         if cfg!(target_os = "linux") {
             assert_eq!(platform, Platform::Linux);
         }
+    }
+
+    #[test]
+    fn serializes_as_lowercase_matching_manifest_schema() {
+        #[derive(Serialize, Deserialize)]
+        struct Wrapper {
+            platform: Platform,
+        }
+
+        // manifest.toml (#59) spells this "macos", not "MacOs" — the exact
+        // reason `rename_all = "lowercase"` is here.
+        let toml = toml::to_string(&Wrapper {
+            platform: Platform::MacOs,
+        })
+        .unwrap();
+        assert_eq!(toml.trim(), "platform = \"macos\"");
+
+        let parsed: Wrapper = toml::from_str("platform = \"linux\"").unwrap();
+        assert_eq!(parsed.platform, Platform::Linux);
     }
 }

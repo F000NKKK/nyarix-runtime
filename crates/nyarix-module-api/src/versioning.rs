@@ -31,6 +31,30 @@ impl fmt::Display for ApiVersion {
     }
 }
 
+/// A string failed to parse as an [`ApiVersion`] (see [`ApiVersion`]'s
+/// `FromStr` impl).
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("invalid api_version {input:?}: expected \"major.minor\"")]
+pub struct ApiVersionParseError {
+    input: String,
+}
+
+impl std::str::FromStr for ApiVersion {
+    type Err = ApiVersionParseError;
+
+    /// Parse the `"major.minor"` form used in `manifest.toml`'s
+    /// `api_version` field (#59) — the inverse of [`Self`]'s `Display`.
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        let invalid = || ApiVersionParseError {
+            input: input.to_string(),
+        };
+        let (major, minor) = input.split_once('.').ok_or_else(invalid)?;
+        let major = major.parse().map_err(|_| invalid())?;
+        let minor = minor.parse().map_err(|_| invalid())?;
+        Ok(Self::new(major, minor))
+    }
+}
+
 /// Whether a module built against `provided` can run against a Runtime
 /// that requires `required`.
 ///
