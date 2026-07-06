@@ -54,8 +54,20 @@ pub struct ModuleMetadata {
     pub description: String,
     /// Capabilities this module needs from the Runtime to function.
     pub required_capabilities: Vec<Capability>,
-    /// Capabilities this module makes available to other modules.
+    /// System capabilities this module makes available to other modules
+    /// (the closed [`Capability`] enum, #21 — a Sandbox-granted
+    /// permission, not a feature tag).
     pub provided_capabilities: Vec<Capability>,
+    /// Free-form feature/service tags this module advertises to other
+    /// modules (e.g. `"transport-udp"`), for the Dependency resolver
+    /// (#53) to match other modules' declared dependencies against.
+    ///
+    /// Deliberately a separate field from [`Self::provided_capabilities`]:
+    /// package manifests (#59) can declare arbitrary tags here that will
+    /// never be system [`Capability`] variants — see
+    /// `nyarix_package::manifest::Capabilities`'s doc comment for the
+    /// full reasoning (#104).
+    pub provided_tags: Vec<String>,
     /// Platforms this module supports. Empty means "unspecified" (assume
     /// all platforms) rather than "supports no platforms".
     pub platforms: Vec<Platform>,
@@ -77,6 +89,7 @@ impl ModuleMetadata {
             description: String::new(),
             required_capabilities: Vec::new(),
             provided_capabilities: Vec::new(),
+            provided_tags: Vec::new(),
             platforms: Vec::new(),
             resource_limits: ResourceLimits::unbounded(),
         }
@@ -93,6 +106,14 @@ impl ModuleMetadata {
     #[must_use]
     pub fn with_provided_capabilities(mut self, capabilities: impl Into<Vec<Capability>>) -> Self {
         self.provided_capabilities = capabilities.into();
+        self
+    }
+
+    /// Set the feature/service tags this module advertises to other
+    /// modules.
+    #[must_use]
+    pub fn with_provided_tags(mut self, tags: impl Into<Vec<String>>) -> Self {
+        self.provided_tags = tags.into();
         self
     }
 
@@ -132,6 +153,16 @@ mod tests {
         let required_mask = CapabilityMask::from_capabilities(&meta.required_capabilities);
         let provided_mask = CapabilityMask::from_capabilities(&meta.provided_capabilities);
         assert!(!provided_mask.satisfies(required_mask));
+    }
+
+    #[test]
+    fn metadata_declares_provided_tags_separately_from_capabilities() {
+        let meta = ModuleMetadata::new("udp-transport", version("0.1.0"), ModuleType::Transport)
+            .with_provided_capabilities(vec![Capability::Network])
+            .with_provided_tags(vec!["transport-udp".to_string()]);
+
+        assert_eq!(meta.provided_capabilities, vec![Capability::Network]);
+        assert_eq!(meta.provided_tags, vec!["transport-udp".to_string()]);
     }
 
     #[test]
