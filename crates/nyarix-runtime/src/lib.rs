@@ -1,6 +1,10 @@
 //! Nyarix Runtime: the execution core of the platform.
 //!
-//! This crate will host the module loader, dependency resolver, scheduler,
-//! event bus and everything else that ties the platform together. Implementation
-//! lands in milestone M4 (Runtime Core); this crate currently only exists
-//! so the workspace resolves.
+//! [`RuntimeHandle`] (#40) is the first piece: loading configuration and
+//! holding the slot for the subsystems that tie the platform together
+//! (module loader, dependency resolver, scheduler, event bus, metrics —
+//! each its own later milestone issue).
+
+pub mod init;
+
+pub use init::{RuntimeHandle, RuntimeInitError};

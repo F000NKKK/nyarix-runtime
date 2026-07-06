@@ -259,7 +259,9 @@ dependencies = [
  "nyarix-graph",
  "nyarix-module-api",
  "nyarix-packet",
+ "thiserror",
  "tokio",
+ "toml",
  "tracing",
 ]
 
