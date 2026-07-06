@@ -227,9 +227,12 @@ mod tests {
         let received: Arc<Mutex<Vec<Event>>> = Arc::new(Mutex::new(Vec::new()));
         let received_clone = Arc::clone(&received);
 
-        let handle = bus.subscribe(EventFilter::Only(vec![EventKind::ModuleLoaded]), move |event| {
-            received_clone.lock().unwrap().push(event);
-        });
+        let handle = bus.subscribe(
+            EventFilter::Only(vec![EventKind::ModuleLoaded]),
+            move |event| {
+                received_clone.lock().unwrap().push(event);
+            },
+        );
 
         bus.publish(Event::ModuleUnloaded {
             name: "quic".to_string(),
