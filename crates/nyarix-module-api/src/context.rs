@@ -166,6 +166,17 @@ impl RuntimeContext {
         self.dependencies.get(name).cloned()
     }
 
+    /// Whether a dependency named `name` was resolved and is available.
+    ///
+    /// This is how a module checks an *optional* dependency's presence
+    /// (#56) without treating its absence as an error — an optional
+    /// dependency that isn't installed is simply not granted here, not
+    /// a failed [`Self::resolve_dependency`] call worth logging.
+    #[must_use]
+    pub fn has_module(&self, name: &str) -> bool {
+        self.dependencies.contains_key(name)
+    }
+
     /// The platform the Runtime is currently executing on.
     #[must_use]
     pub const fn platform(&self) -> Platform {
@@ -253,6 +264,19 @@ mod tests {
         assert!(resolved.is_some());
         assert_eq!(resolved.unwrap().metadata().name, "dns-resolver");
         assert!(ctx.resolve_dependency("missing").is_none());
+    }
+
+    #[test]
+    fn has_module_reflects_resolved_dependencies() {
+        let dep: Arc<dyn Module> = Arc::new(StubModule {
+            metadata: support::new_metadata("dns-resolver"),
+        });
+        let mut deps: HashMap<String, Arc<dyn Module>> = HashMap::new();
+        deps.insert("dns-resolver".to_string(), dep);
+
+        let ctx = RuntimeContext::new(ModuleConfig::empty(), deps);
+        assert!(ctx.has_module("dns-resolver"));
+        assert!(!ctx.has_module("nonexistent-optional-plugin"));
     }
 
     #[test]
