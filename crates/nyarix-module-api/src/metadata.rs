@@ -1,15 +1,18 @@
 //! Module metadata (see issue #20).
 //!
-//! `ModuleMetadata` here is intentionally a minimal slice of the full shape
-//! described in #20 — just enough for `Module::metadata()` (#16) to compile
-//! and be useful. `required_capabilities`/`provided_capabilities` are now
-//! filled in (#21). The rest (`dependencies`, `platforms`, `resource_limits`,
-//! `sandbox_permissions`) still depend on types that don't exist yet (M5
-//! dependency resolver, M7 Sandbox, M11 platform backends) — adding them
-//! now would mean guessing their shape. Tracked in #20 to be filled in once
-//! those land.
+//! `ModuleMetadata` here is still not the *complete* #20 shape: `dependencies`
+//! and `sandbox_permissions` remain deferred. `dependencies: Vec<DependencySpec>`
+//! needs the Module Loader's actual dependency-matching syntax (M5, #53
+//! Dependency resolver) to be decided first — semver ranges vs. something
+//! else is an open question there, not here. `sandbox_permissions` has no
+//! settled taxonomy anywhere in the backlog yet (unlike capabilities, which
+//! #21 fully specifies) — it needs Sandbox design (M7, #75) before its shape
+//! can be more than a guess.
 
 use crate::capability::Capability;
+use crate::platform::Platform;
+use crate::resource_limits::ResourceLimits;
+use crate::versioning::ApiVersion;
 
 /// The functional category of a module.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -30,24 +33,18 @@ pub enum ModuleType {
 
 /// Metadata describing a module.
 ///
-/// See the module-level docs for why this is a subset of the full #20 spec.
+/// See the module-level docs for the two fields still missing relative to
+/// the full #20 spec.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModuleMetadata {
     /// Module name, unique within its registry namespace.
     pub name: String,
     /// Module version.
-    ///
-    /// A plain string for now; #20 specifies `semver::Version`, which pulls
-    /// in the `semver` crate and its own compatibility rules — deferred
-    /// until version resolution (M5) actually consumes it.
-    pub version: String,
+    pub version: semver::Version,
     /// The functional category of this module.
     pub module_type: ModuleType,
-    /// The Module API version this module was built against.
-    ///
-    /// A plain integer for now; full `ApiVersion` + compatibility checker
-    /// is #25 (Module API versioning system).
-    pub api_version: u32,
+    /// The Module API version this module was built against (see #25).
+    pub api_version: ApiVersion,
     /// Author name or organization.
     pub author: String,
     /// Human-readable description.
@@ -56,26 +53,29 @@ pub struct ModuleMetadata {
     pub required_capabilities: Vec<Capability>,
     /// Capabilities this module makes available to other modules.
     pub provided_capabilities: Vec<Capability>,
+    /// Platforms this module supports. Empty means "unspecified" (assume
+    /// all platforms) rather than "supports no platforms".
+    pub platforms: Vec<Platform>,
+    /// Resource limits this module declares for itself.
+    pub resource_limits: ResourceLimits,
 }
 
 impl ModuleMetadata {
     /// Create metadata with the given name, version, and type; other fields
-    /// default to empty.
+    /// default to empty/unbounded.
     #[must_use]
-    pub fn new(
-        name: impl Into<String>,
-        version: impl Into<String>,
-        module_type: ModuleType,
-    ) -> Self {
+    pub fn new(name: impl Into<String>, version: semver::Version, module_type: ModuleType) -> Self {
         Self {
             name: name.into(),
-            version: version.into(),
+            version,
             module_type,
-            api_version: 1,
+            api_version: ApiVersion::new(1, 0),
             author: String::new(),
             description: String::new(),
             required_capabilities: Vec::new(),
             provided_capabilities: Vec::new(),
+            platforms: Vec::new(),
+            resource_limits: ResourceLimits::unbounded(),
         }
     }
 
@@ -92,6 +92,20 @@ impl ModuleMetadata {
         self.provided_capabilities = capabilities.into();
         self
     }
+
+    /// Set the platforms this module supports.
+    #[must_use]
+    pub fn with_platforms(mut self, platforms: impl Into<Vec<Platform>>) -> Self {
+        self.platforms = platforms.into();
+        self
+    }
+
+    /// Set this module's declared resource limits.
+    #[must_use]
+    pub const fn with_resource_limits(mut self, limits: ResourceLimits) -> Self {
+        self.resource_limits = limits;
+        self
+    }
 }
 
 #[cfg(test)]
@@ -99,9 +113,13 @@ mod tests {
     use super::*;
     use crate::capability::CapabilityMask;
 
+    fn version(text: &str) -> semver::Version {
+        semver::Version::parse(text).unwrap()
+    }
+
     #[test]
     fn metadata_declares_capabilities() {
-        let meta = ModuleMetadata::new("quic-transport", "0.1.0", ModuleType::Transport)
+        let meta = ModuleMetadata::new("quic-transport", version("0.1.0"), ModuleType::Transport)
             .with_required_capabilities(vec![Capability::Network, Capability::Clock])
             .with_provided_capabilities(vec![Capability::Network]);
 
@@ -111,5 +129,28 @@ mod tests {
         let required_mask = CapabilityMask::from_capabilities(&meta.required_capabilities);
         let provided_mask = CapabilityMask::from_capabilities(&meta.provided_capabilities);
         assert!(!provided_mask.satisfies(required_mask));
+    }
+
+    #[test]
+    fn metadata_declares_platforms_and_limits() {
+        let meta = ModuleMetadata::new("tun-bridge", version("0.2.0"), ModuleType::Transport)
+            .with_platforms(vec![Platform::Linux, Platform::MacOs])
+            .with_resource_limits(ResourceLimits {
+                max_memory_bytes: Some(64 * 1024 * 1024),
+                ..ResourceLimits::unbounded()
+            });
+
+        assert_eq!(meta.platforms, vec![Platform::Linux, Platform::MacOs]);
+        assert_eq!(
+            meta.resource_limits.max_memory_bytes,
+            Some(64 * 1024 * 1024)
+        );
+        assert_eq!(meta.resource_limits.max_cpu_percent, None);
+    }
+
+    #[test]
+    fn default_api_version_is_1_0() {
+        let meta = ModuleMetadata::new("noop", version("0.1.0"), ModuleType::Observability);
+        assert_eq!(meta.api_version, ApiVersion::new(1, 0));
     }
 }

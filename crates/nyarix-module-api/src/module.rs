@@ -74,7 +74,11 @@ mod tests {
     impl PassthroughModule {
         fn new() -> Self {
             Self {
-                metadata: ModuleMetadata::new("passthrough", "0.1.0", ModuleType::Observability),
+                metadata: ModuleMetadata::new(
+                    "passthrough",
+                    semver::Version::new(0, 1, 0),
+                    ModuleType::Observability,
+                ),
                 initialized: false,
             }
         }
@@ -153,7 +157,7 @@ mod tests {
     #[test]
     fn sink_absorbs_packet() {
         let mut module = SinkModule {
-            metadata: ModuleMetadata::new("sink", "0.1.0", ModuleType::Flow),
+            metadata: ModuleMetadata::new("sink", semver::Version::new(0, 1, 0), ModuleType::Flow),
         };
         let pkt = Packet::new(b"data".as_slice());
 

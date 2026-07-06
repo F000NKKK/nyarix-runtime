@@ -35,7 +35,10 @@ pub fn resolve(
     candidates: &[(String, ApiVersion)],
     fallback: Option<&str>,
 ) -> Resolution {
-    if let Some((name, _)) = candidates.iter().find(|(_, provided)| *provided == required) {
+    if let Some((name, _)) = candidates
+        .iter()
+        .find(|(_, provided)| *provided == required)
+    {
         return Resolution::ExactMatch(name.clone());
     }
 

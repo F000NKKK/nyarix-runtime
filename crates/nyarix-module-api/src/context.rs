@@ -103,7 +103,10 @@ impl fmt::Debug for RuntimeContext {
         f.debug_struct("RuntimeContext")
             .field("config", &self.config)
             .field("platform", &self.platform)
-            .field("dependencies", &self.dependencies.keys().collect::<Vec<_>>())
+            .field(
+                "dependencies",
+                &self.dependencies.keys().collect::<Vec<_>>(),
+            )
             .finish_non_exhaustive()
     }
 }

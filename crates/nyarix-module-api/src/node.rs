@@ -113,7 +113,11 @@ mod tests {
     fn node_reports_type_and_topology() {
         let downstream = [NodeId::new(), NodeId::new()];
         let node = RouterNode {
-            metadata: ModuleMetadata::new("router", "0.1.0", ModuleType::Flow),
+            metadata: ModuleMetadata::new(
+                "router",
+                semver::Version::new(0, 1, 0),
+                ModuleType::Flow,
+            ),
             outputs: downstream.to_vec(),
             queue_depth: 3,
         };
@@ -126,7 +130,7 @@ mod tests {
     #[test]
     fn sink_has_no_output_connections() {
         let node = RouterNode {
-            metadata: ModuleMetadata::new("sink", "0.1.0", ModuleType::Flow),
+            metadata: ModuleMetadata::new("sink", semver::Version::new(0, 1, 0), ModuleType::Flow),
             outputs: Vec::new(),
             queue_depth: 0,
         };
@@ -143,7 +147,11 @@ mod tests {
         }
 
         let node = RouterNode {
-            metadata: ModuleMetadata::new("router", "0.1.0", ModuleType::Flow),
+            metadata: ModuleMetadata::new(
+                "router",
+                semver::Version::new(0, 1, 0),
+                ModuleType::Flow,
+            ),
             outputs: Vec::new(),
             queue_depth: 0,
         };
