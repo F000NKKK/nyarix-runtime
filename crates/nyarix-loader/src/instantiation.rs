@@ -19,7 +19,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use nyarix_module_api::{Module, ModuleError, RuntimeContext};
+use nyarix_error::ModuleError;
+use nyarix_module_api::{Module, RuntimeContext};
 
 /// A module failed during [`instantiate`].
 #[derive(Debug, thiserror::Error)]
@@ -106,7 +107,10 @@ impl ModuleRegistry {
     pub fn dependencies_for(&self, names: &[String]) -> HashMap<String, Arc<dyn Module>> {
         names
             .iter()
-            .filter_map(|name| self.get(name).map(|module| (name.clone(), Arc::clone(module))))
+            .filter_map(|name| {
+                self.get(name)
+                    .map(|module| (name.clone(), Arc::clone(module)))
+            })
             .collect()
     }
 
@@ -138,7 +142,11 @@ mod tests {
     impl StubModule {
         fn new(name: &str) -> Self {
             Self {
-                metadata: ModuleMetadata::new(name, semver::Version::new(0, 1, 0), ModuleType::Flow),
+                metadata: ModuleMetadata::new(
+                    name,
+                    semver::Version::new(0, 1, 0),
+                    ModuleType::Flow,
+                ),
                 fail_init: false,
                 initialized: false,
             }
@@ -196,7 +204,10 @@ mod tests {
         let ctx = RuntimeContext::empty();
         let module: Box<dyn Module> = Box::new(StubModule::failing("broken-transport"));
 
-        let err = instantiate(module, &ctx).unwrap_err();
+        let err = match instantiate(module, &ctx) {
+            Ok(_) => panic!("expected instantiate to fail"),
+            Err(err) => err,
+        };
 
         assert_eq!(err.name, "broken-transport");
     }
@@ -219,7 +230,8 @@ mod tests {
         let ctx = RuntimeContext::empty();
         let mut registry = ModuleRegistry::new();
 
-        let result = registry.instantiate_and_register(Box::new(StubModule::failing("broken")), &ctx);
+        let result =
+            registry.instantiate_and_register(Box::new(StubModule::failing("broken")), &ctx);
 
         assert!(result.is_err());
         assert!(registry.is_empty());
@@ -234,10 +246,8 @@ mod tests {
             .instantiate_and_register(Box::new(StubModule::new("dns-resolver")), &ctx)
             .unwrap();
 
-        let deps = registry.dependencies_for(&[
-            "dns-resolver".to_string(),
-            "nonexistent-module".to_string(),
-        ]);
+        let deps = registry
+            .dependencies_for(&["dns-resolver".to_string(), "nonexistent-module".to_string()]);
 
         assert_eq!(deps.len(), 1);
         assert!(deps.contains_key("dns-resolver"));

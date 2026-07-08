@@ -1,23 +1,22 @@
 //! Module discovery: finding `.nyp` packages to load (see issue #50),
 //! building a dependency graph over what was found (#53), picking a
-//! concrete version per dependency (#54), and categorizing conflicts
-//! with human-readable messages (#55).
+//! concrete version per dependency while honoring `optional = true`
+//! (#54/#56), categorizing conflicts with human-readable messages
+//! (#55), and instantiating an already-loaded module (#57).
 //!
-//! **Scope note:** this crate finds, indexes, orders, version-resolves,
-//! and diagnoses conflicts among packages — it does not treat
-//! `optional = true` dependencies specially (#56, so every
-//! [`Conflict::MissingDependency`] here is reported regardless of
-//! whether the dependency was actually optional), or actually
-//! instantiate a module (#57). Those consume
-//! [`ScanReport`]/[`ModuleIndex`]/[`DependencyGraph`]/[`ResolvedVersions`]/
-//! [`Conflict`] once they exist.
+//! **Scope note:** [`instantiation::instantiate`] takes a `Box<dyn
+//! Module>` the caller already produced — actually loading a module's
+//! compiled code (WASM or native) isn't implemented anywhere in this
+//! crate; see that module's own scope note and #107.
 
 pub mod conflict;
 pub mod dependency_graph;
+pub mod instantiation;
 pub mod version_resolver;
 
 pub use conflict::{Conflict, detect_conflicts};
 pub use dependency_graph::{DependencyCycle, DependencyGraph};
+pub use instantiation::{InstantiationError, ModuleRegistry, instantiate};
 pub use version_resolver::{Requirement, ResolvedVersions, VersionConflict, resolve_versions};
 
 use std::collections::HashMap;
