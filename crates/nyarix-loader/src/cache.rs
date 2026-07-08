@@ -92,18 +92,18 @@ impl PackageCache {
         let index_path = Self::index_path(&root);
 
         let entries = match fs::read_to_string(&index_path) {
-            Ok(contents) => serde_json::from_str(&contents).map_err(|source| {
-                CacheError::InvalidIndex {
+            Ok(contents) => {
+                serde_json::from_str(&contents).map_err(|source| CacheError::InvalidIndex {
                     path: index_path.clone(),
                     source,
-                }
-            })?,
+                })?
+            }
             Err(source) if source.kind() == io::ErrorKind::NotFound => Vec::new(),
             Err(source) => {
                 return Err(CacheError::Io {
                     path: index_path,
                     source,
-                })
+                });
             }
         };
 
@@ -167,8 +167,7 @@ impl PackageCache {
     ///
     /// Returns the evicted entries, oldest first.
     pub fn evict_to_fit(&mut self, max_bytes: u64) -> Vec<CacheEntry> {
-        self.entries
-            .sort_by_key(|entry| entry.installed_at);
+        self.entries.sort_by_key(|entry| entry.installed_at);
 
         let mut evicted = Vec::new();
         while self.total_size() > max_bytes && !self.entries.is_empty() {
@@ -214,7 +213,12 @@ mod tests {
         TempDir(dir)
     }
 
-    fn entry(name: &str, version: &str, installed_at: DateTime<Utc>, size_bytes: u64) -> CacheEntry {
+    fn entry(
+        name: &str,
+        version: &str,
+        installed_at: DateTime<Utc>,
+        size_bytes: u64,
+    ) -> CacheEntry {
         CacheEntry {
             name: name.to_string(),
             version: Version::parse(version).unwrap(),

@@ -22,12 +22,12 @@ pub mod validation;
 pub mod version_resolver;
 
 pub use cache::{CacheEntry, CacheError, PackageCache};
-pub use conflict::{detect_conflicts, Conflict};
+pub use conflict::{Conflict, detect_conflicts};
 pub use dependency_graph::{DependencyCycle, DependencyGraph};
-pub use installer::{default_install_root, install_package, InstallOutcome};
-pub use instantiation::{instantiate, InstantiationError, ModuleRegistry};
-pub use validation::{validate_package, ValidationReport};
-pub use version_resolver::{resolve_versions, Requirement, ResolvedVersions, VersionConflict};
+pub use installer::{InstallOutcome, default_install_root, install_package};
+pub use instantiation::{InstantiationError, ModuleRegistry, instantiate};
+pub use validation::{ValidationReport, validate_package};
+pub use version_resolver::{Requirement, ResolvedVersions, VersionConflict, resolve_versions};
 
 use std::collections::HashMap;
 use std::fs;
