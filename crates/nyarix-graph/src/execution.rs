@@ -394,9 +394,14 @@ pub async fn execute_parallel(
 ) -> Result<Vec<Packet>, ExecutionError> {
     record_flow_entry(metrics.as_deref(), packet.len());
     let started = Instant::now();
-    let result =
-        execute_parallel_inner(graph, entry, packet, max_concurrent_branches, metrics.clone())
-            .await;
+    let result = execute_parallel_inner(
+        graph,
+        entry,
+        packet,
+        max_concurrent_branches,
+        metrics.clone(),
+    )
+    .await;
     let reached_exit = matches!(&result, Ok(results) if !results.is_empty());
     record_flow_exit(metrics.as_deref(), started, reached_exit);
     result
@@ -933,7 +938,12 @@ mod tests {
     #[test]
     fn flow_metrics_count_an_errored_traversal_as_dropped() {
         let mut graph = FlowGraph::new();
-        let a = node(StubNode::with_processing_budget("slow", NodeType::Source, 1, 50));
+        let a = node(StubNode::with_processing_budget(
+            "slow",
+            NodeType::Source,
+            1,
+            50,
+        ));
         let a_id = a.id();
         graph.mark_exit_point(a_id);
         graph.add_node(a);
