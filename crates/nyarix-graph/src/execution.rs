@@ -876,6 +876,81 @@ mod tests {
         assert_eq!(metrics.counter("failing", "errors_total").value(), 1);
     }
 
+    #[test]
+    fn flow_metrics_count_a_successful_traversal() {
+        let mut graph = FlowGraph::new();
+        let a = node(StubNode::new("source", NodeType::Source));
+        let a_id = a.id();
+        graph.mark_exit_point(a_id);
+        graph.add_node(a);
+
+        let metrics = MetricRegistry::new();
+        let pkt = Packet::new(b"hello".as_slice());
+        let result = execute_sequential(&mut graph, a_id, pkt, Some(&metrics)).unwrap();
+        assert!(result.is_some());
+
+        assert_eq!(metrics.counter("flow", "packets_total").value(), 1);
+        assert_eq!(metrics.counter("flow", "bytes_total").value(), 5);
+        assert_eq!(metrics.counter("flow", "packets_dropped").value(), 0);
+        assert_eq!(
+            metrics
+                .histogram("flow", "packet_latency_us", vec![])
+                .snapshot()
+                .count,
+            1
+        );
+    }
+
+    #[test]
+    fn flow_metrics_count_an_absorbed_packet_as_dropped() {
+        let mut graph = FlowGraph::new();
+        let a = node(StubNode::absorbing("filter", NodeType::Source));
+        let a_id = a.id();
+        graph.mark_exit_point(a_id);
+        graph.add_node(a);
+
+        let metrics = MetricRegistry::new();
+        let result = execute_sequential(
+            &mut graph,
+            a_id,
+            Packet::new(b"data".as_slice()),
+            Some(&metrics),
+        )
+        .unwrap();
+        assert!(result.is_none());
+
+        assert_eq!(metrics.counter("flow", "packets_total").value(), 1);
+        assert_eq!(metrics.counter("flow", "packets_dropped").value(), 1);
+        assert_eq!(
+            metrics
+                .histogram("flow", "packet_latency_us", vec![])
+                .snapshot()
+                .count,
+            0
+        );
+    }
+
+    #[test]
+    fn flow_metrics_count_an_errored_traversal_as_dropped() {
+        let mut graph = FlowGraph::new();
+        let a = node(StubNode::with_processing_budget("slow", NodeType::Source, 1, 50));
+        let a_id = a.id();
+        graph.mark_exit_point(a_id);
+        graph.add_node(a);
+
+        let metrics = MetricRegistry::new();
+        let result = execute_sequential(
+            &mut graph,
+            a_id,
+            Packet::new(b"data".as_slice()),
+            Some(&metrics),
+        );
+        assert!(result.is_err());
+
+        assert_eq!(metrics.counter("flow", "packets_total").value(), 1);
+        assert_eq!(metrics.counter("flow", "packets_dropped").value(), 1);
+    }
+
     fn shared(graph: FlowGraph) -> Arc<tokio::sync::Mutex<FlowGraph>> {
         Arc::new(tokio::sync::Mutex::new(graph))
     }
@@ -915,6 +990,59 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(results.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn parallel_flow_metrics_count_one_entry_and_one_exit() {
+        let mut graph = FlowGraph::new();
+        let source = node(StubNode::new("source", NodeType::Source));
+        let branch_a = node(StubNode::new("branch-a", NodeType::Transformer));
+        let branch_b = node(StubNode::new("branch-b", NodeType::Transformer));
+        let sink_a = node(StubNode::new("sink-a", NodeType::Sink));
+        let sink_b = node(StubNode::new("sink-b", NodeType::Sink));
+        let (src, ba, bb, sa, sb) = (
+            source.id(),
+            branch_a.id(),
+            branch_b.id(),
+            sink_a.id(),
+            sink_b.id(),
+        );
+        graph.add_node(source);
+        graph.add_node(branch_a);
+        graph.add_node(branch_b);
+        graph.add_node(sink_a);
+        graph.add_node(sink_b);
+
+        let (e1, _rx1) = crate::edge::Edge::new(src, ba, EdgeType::Parallel, None, 8);
+        let (e2, _rx2) = crate::edge::Edge::new(src, bb, EdgeType::Parallel, None, 8);
+        let (e3, _rx3) = crate::edge::Edge::new(ba, sa, EdgeType::Sequential, None, 8);
+        let (e4, _rx4) = crate::edge::Edge::new(bb, sb, EdgeType::Sequential, None, 8);
+        graph.connect(e1).unwrap();
+        graph.connect(e2).unwrap();
+        graph.connect(e3).unwrap();
+        graph.connect(e4).unwrap();
+
+        let metrics = Arc::new(MetricRegistry::new());
+        let results = execute_parallel(
+            shared(graph),
+            src,
+            Packet::new(b"data".as_slice()),
+            4,
+            Some(Arc::clone(&metrics)),
+        )
+        .await
+        .unwrap();
+        assert_eq!(results.len(), 2);
+
+        assert_eq!(metrics.counter("flow", "packets_total").value(), 1);
+        assert_eq!(metrics.counter("flow", "packets_dropped").value(), 0);
+        assert_eq!(
+            metrics
+                .histogram("flow", "packet_latency_us", vec![])
+                .snapshot()
+                .count,
+            1
+        );
     }
 
     #[tokio::test]
