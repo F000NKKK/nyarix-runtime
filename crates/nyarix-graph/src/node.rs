@@ -362,6 +362,18 @@ mod tests {
     }
 
     #[test]
+    fn queue_depth_reflects_the_node_s_own_input_queue() {
+        let module: Arc<dyn Node> = Arc::new(StubRouter::new());
+        let node = GraphNode::new(NodeId::new(), module, NodeConfig::default());
+        assert_eq!(node.queue_depth(), 0);
+
+        node.queue_sender()
+            .try_send(Packet::new(b"data".as_slice()))
+            .unwrap();
+        assert_eq!(node.queue_depth(), 1);
+    }
+
+    #[test]
     fn set_state_updates_state() {
         let module: Arc<dyn Node> = Arc::new(StubRouter::new());
         let mut node = GraphNode::new(NodeId::new(), module, NodeConfig::default());

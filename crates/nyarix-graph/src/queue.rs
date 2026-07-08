@@ -237,6 +237,22 @@ mod tests {
         assert!(rx.try_recv_prioritized().is_none());
     }
 
+    #[test]
+    fn len_sums_all_three_lanes() {
+        let (tx, mut rx) = node_queue(8);
+        assert!(rx.is_empty());
+        assert_eq!(rx.len(), 0);
+
+        tx.try_send(tagged(Tag::Control)).unwrap();
+        tx.try_send(tagged(Tag::Interactive)).unwrap();
+        tx.try_send(tagged(Tag::Bulk)).unwrap();
+        assert_eq!(rx.len(), 3);
+        assert!(!rx.is_empty());
+
+        rx.try_recv_prioritized();
+        assert_eq!(rx.len(), 2);
+    }
+
     #[tokio::test]
     async fn recv_returns_none_once_all_lanes_closed() {
         let (tx, mut rx) = node_queue(8);
