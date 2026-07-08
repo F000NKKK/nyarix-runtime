@@ -30,6 +30,7 @@ pub struct RuntimeContext {
     filesystem_policy: FilesystemPolicy,
     network_policy: NetworkPolicy,
     io_rate_limiter: Option<RateLimiter>,
+    open_connections: Mutex<HashMap<String, usize>>,
 }
 
 impl RuntimeContext {
@@ -54,6 +55,7 @@ impl RuntimeContext {
             filesystem_policy: FilesystemPolicy::deny_all(),
             network_policy: NetworkPolicy::deny_all(),
             io_rate_limiter: None,
+            open_connections: Mutex::new(HashMap::new()),
         }
     }
 
@@ -74,6 +76,7 @@ impl RuntimeContext {
             filesystem_policy: FilesystemPolicy::deny_all(),
             network_policy: NetworkPolicy::deny_all(),
             io_rate_limiter: None,
+            open_connections: Mutex::new(HashMap::new()),
         }
     }
 
@@ -98,6 +101,7 @@ impl RuntimeContext {
             filesystem_policy: FilesystemPolicy::deny_all(),
             network_policy: NetworkPolicy::deny_all(),
             io_rate_limiter: None,
+            open_connections: Mutex::new(HashMap::new()),
         }
     }
 
@@ -295,6 +299,101 @@ impl RuntimeContext {
                 violation: "I/O rate limit exceeded".to_string(),
             })
         }
+    }
+
+    /// Check whether `metadata`'s module may resolve `host` via DNS
+    /// (#79's "DNS-резолв только через Runtime"): requires
+    /// [`Capability::Dns`], then the I/O rate limit, then
+    /// [`NetworkPolicy::allows_host`] — reusing the same whitelist
+    /// [`Self::check_network_access`] checks, on the theory that a host
+    /// not worth *connecting* to isn't worth *resolving* either.
+    ///
+    /// # Errors
+    /// Returns [`nyarix_error::SecurityError::CapabilityDenied`] if
+    /// `Capability::Dns` wasn't granted, or
+    /// [`nyarix_error::SecurityError::SandboxViolation`] if the I/O rate
+    /// limit is exceeded or `host` isn't in the whitelist.
+    pub fn check_dns_resolve(
+        &self,
+        metadata: &ModuleMetadata,
+        host: &str,
+    ) -> Result<(), nyarix_error::SecurityError> {
+        self.request_capability(metadata, Capability::Dns)?;
+        self.check_rate_limit(metadata)?;
+        if !self.network_policy.allows_host(host) {
+            return Err(nyarix_error::SecurityError::SandboxViolation {
+                module: metadata.name.clone(),
+                violation: format!("DNS resolution of {host} is not whitelisted"),
+            });
+        }
+        Ok(())
+    }
+
+    /// Check whether `metadata`'s module may bind/listen on `port`
+    /// (#79's "Запрет на listen/bind без capability"): requires
+    /// [`Capability::Network`], and additionally
+    /// [`Capability::PrivilegedSockets`] if `port` is a privileged
+    /// (below 1024) port — matching that capability's own documented
+    /// purpose ("Bind privileged (low-numbered) sockets").
+    ///
+    /// No whitelist check here (unlike [`Self::check_network_access`]):
+    /// binding is about what *this* module exposes locally, not which
+    /// remote destination it reaches, so [`NetworkPolicy`] doesn't
+    /// apply.
+    ///
+    /// # Errors
+    /// Returns [`nyarix_error::SecurityError::CapabilityDenied`] if the
+    /// required capability/capabilities weren't granted, or
+    /// [`nyarix_error::SecurityError::SandboxViolation`] if the I/O rate
+    /// limit is exceeded.
+    pub fn check_bind_access(
+        &self,
+        metadata: &ModuleMetadata,
+        port: u16,
+    ) -> Result<(), nyarix_error::SecurityError> {
+        self.request_capability(metadata, Capability::Network)?;
+        if port < 1024 {
+            self.request_capability(metadata, Capability::PrivilegedSockets)?;
+        }
+        self.check_rate_limit(metadata)
+    }
+
+    /// Record that `metadata`'s module opened one more network
+    /// connection (#79's "Connection tracking: сколько соединений
+    /// открыл модуль") — the caller (whatever eventually does real
+    /// networking) calls this once a connection actually opens, and
+    /// [`Self::track_connection_closed`] once it closes.
+    pub fn track_connection_opened(&self, metadata: &ModuleMetadata) {
+        let mut open = self
+            .open_connections
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *open.entry(metadata.name.clone()).or_insert(0) += 1;
+    }
+
+    /// Record that one of `metadata`'s module's tracked connections
+    /// closed. A no-op if it had none open (never goes negative).
+    pub fn track_connection_closed(&self, metadata: &ModuleMetadata) {
+        let mut open = self
+            .open_connections
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(count) = open.get_mut(&metadata.name) {
+            *count = count.saturating_sub(1);
+        }
+    }
+
+    /// How many open connections are currently tracked for `module_name`
+    /// (see [`Self::track_connection_opened`]) — `0` if none were ever
+    /// recorded.
+    #[must_use]
+    pub fn open_connection_count(&self, module_name: &str) -> usize {
+        self.open_connections
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(module_name)
+            .copied()
+            .unwrap_or(0)
     }
 
     /// This module's configuration.
@@ -708,6 +807,133 @@ mod tests {
             err,
             nyarix_error::SecurityError::SandboxViolation { .. }
         ));
+    }
+
+    #[test]
+    fn check_dns_resolve_denies_without_the_dns_capability() {
+        let ctx = RuntimeContext::empty()
+            .with_network_policy(NetworkPolicy::deny_all().allow_host("example.com"));
+        let metadata = support::new_metadata("dns-client");
+
+        let Err(err) = ctx.check_dns_resolve(&metadata, "example.com") else {
+            panic!("expected check_dns_resolve to fail");
+        };
+        assert!(matches!(
+            err,
+            nyarix_error::SecurityError::CapabilityDenied { .. }
+        ));
+    }
+
+    #[test]
+    fn check_dns_resolve_denies_a_host_outside_the_whitelist() {
+        use crate::capability::Capability;
+
+        let ctx = RuntimeContext::empty()
+            .with_granted_capabilities(CapabilityMask::from_capabilities(&[Capability::Dns]))
+            .with_network_policy(NetworkPolicy::deny_all().allow_host("example.com"));
+        let metadata = support::new_metadata("dns-client");
+
+        let Err(err) = ctx.check_dns_resolve(&metadata, "evil.example") else {
+            panic!("expected check_dns_resolve to fail");
+        };
+        assert!(matches!(
+            err,
+            nyarix_error::SecurityError::SandboxViolation { .. }
+        ));
+    }
+
+    #[test]
+    fn check_dns_resolve_allows_a_whitelisted_host_with_the_capability_granted() {
+        use crate::capability::Capability;
+
+        let ctx = RuntimeContext::empty()
+            .with_granted_capabilities(CapabilityMask::from_capabilities(&[Capability::Dns]))
+            .with_network_policy(NetworkPolicy::deny_all().allow_host("example.com"));
+        let metadata = support::new_metadata("dns-client");
+
+        assert!(ctx.check_dns_resolve(&metadata, "example.com").is_ok());
+    }
+
+    #[test]
+    fn check_bind_access_denies_without_the_network_capability() {
+        let ctx = RuntimeContext::empty();
+        let metadata = support::new_metadata("listener");
+
+        let Err(err) = ctx.check_bind_access(&metadata, 8080) else {
+            panic!("expected check_bind_access to fail");
+        };
+        assert!(matches!(
+            err,
+            nyarix_error::SecurityError::CapabilityDenied { .. }
+        ));
+    }
+
+    #[test]
+    fn check_bind_access_allows_an_unprivileged_port_with_just_network() {
+        use crate::capability::Capability;
+
+        let ctx = RuntimeContext::empty()
+            .with_granted_capabilities(CapabilityMask::from_capabilities(&[Capability::Network]));
+        let metadata = support::new_metadata("listener");
+
+        assert!(ctx.check_bind_access(&metadata, 8080).is_ok());
+    }
+
+    #[test]
+    fn check_bind_access_denies_a_privileged_port_without_privileged_sockets() {
+        use crate::capability::Capability;
+
+        let ctx = RuntimeContext::empty()
+            .with_granted_capabilities(CapabilityMask::from_capabilities(&[Capability::Network]));
+        let metadata = support::new_metadata("listener");
+
+        let Err(err) = ctx.check_bind_access(&metadata, 80) else {
+            panic!("expected check_bind_access to fail on a privileged port");
+        };
+        assert!(matches!(
+            err,
+            nyarix_error::SecurityError::CapabilityDenied { .. }
+        ));
+    }
+
+    #[test]
+    fn check_bind_access_allows_a_privileged_port_with_both_capabilities() {
+        use crate::capability::Capability;
+
+        let ctx =
+            RuntimeContext::empty().with_granted_capabilities(CapabilityMask::from_capabilities(
+                &[Capability::Network, Capability::PrivilegedSockets],
+            ));
+        let metadata = support::new_metadata("listener");
+
+        assert!(ctx.check_bind_access(&metadata, 80).is_ok());
+    }
+
+    #[test]
+    fn connection_tracking_counts_opens_and_closes_per_module() {
+        let ctx = RuntimeContext::empty();
+        let metadata = support::new_metadata("quic-transport");
+        let other = support::new_metadata("other-transport");
+
+        assert_eq!(ctx.open_connection_count("quic-transport"), 0);
+
+        ctx.track_connection_opened(&metadata);
+        ctx.track_connection_opened(&metadata);
+        ctx.track_connection_opened(&other);
+        assert_eq!(ctx.open_connection_count("quic-transport"), 2);
+        assert_eq!(ctx.open_connection_count("other-transport"), 1);
+
+        ctx.track_connection_closed(&metadata);
+        assert_eq!(ctx.open_connection_count("quic-transport"), 1);
+    }
+
+    #[test]
+    fn closing_an_untracked_connection_does_not_underflow() {
+        let ctx = RuntimeContext::empty();
+        let metadata = support::new_metadata("quic-transport");
+
+        ctx.track_connection_closed(&metadata);
+        assert_eq!(ctx.open_connection_count("quic-transport"), 0);
     }
 
     #[tokio::test]

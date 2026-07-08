@@ -77,6 +77,16 @@ impl NetworkPolicy {
             allowed_host == host && allowed_port.is_none_or(|allowed| allowed == port)
         })
     }
+
+    /// Whether `host` has any whitelist entry at all, regardless of
+    /// port — used to gate DNS resolution (#79's "DNS-резолв только
+    /// через Runtime"), which has no port of its own to check against.
+    #[must_use]
+    pub fn allows_host(&self, host: &str) -> bool {
+        self.allowed
+            .iter()
+            .any(|(allowed_host, _)| allowed_host == host)
+    }
 }
 
 #[cfg(test)]
@@ -116,5 +126,12 @@ mod tests {
         let policy = NetworkPolicy::deny_all().allow_host_port("example.com", 443);
         assert!(policy.allows("example.com", 443));
         assert!(!policy.allows("example.com", 8080));
+    }
+
+    #[test]
+    fn allows_host_ignores_port_restrictions() {
+        let policy = NetworkPolicy::deny_all().allow_host_port("example.com", 443);
+        assert!(policy.allows_host("example.com"));
+        assert!(!policy.allows_host("evil.example"));
     }
 }
