@@ -25,9 +25,9 @@ use std::fs;
 use std::path::PathBuf;
 
 use nyarix_error::PackageError;
-use nyarix_loader::{scan_directories, validate_package, ScanError, TrustStore, ValidationReport};
+use nyarix_loader::{scan_directories, validate_package, ScanError, ValidationReport};
 use nyarix_module_api::ApiVersion;
-use nyarix_package::PackageReader;
+use nyarix_package::{PackageReader, TrustStore};
 
 /// One package that passed validation ([`ValidationReport::is_valid`]).
 #[derive(Debug)]
@@ -112,6 +112,7 @@ pub fn load_modules(
         .collect();
 
     for (index, (path, data)) in candidates.into_iter().enumerate() {
+        let own_name = manifests[index].as_ref().map(|m| m.package.name.as_str());
         let other_manifests = manifests
             .iter()
             .enumerate()
@@ -125,21 +126,49 @@ pub fn load_modules(
             trust_store,
             required_api_version,
         ) {
-            Ok(validation) if validation.is_valid() => {
-                report.valid.push(LoadedPackage {
-                    path,
-                    data,
-                    validation,
-                });
-            }
-            Ok(validation) => {
-                report.invalid.push(RejectedPackage { path, validation });
+            Ok(mut validation) => {
+                // `validate_package`'s `conflicts` reflects the whole
+                // combined set it was run against (see its own docs) —
+                // narrow it down to conflicts this specific package is
+                // actually party to, so one unrelated package's broken
+                // dependency doesn't mark every other package in the
+                // directory invalid too.
+                if let Some(name) = own_name {
+                    validation
+                        .conflicts
+                        .retain(|conflict| conflict_involves(conflict, name));
+                }
+
+                if validation.is_valid() {
+                    report.valid.push(LoadedPackage {
+                        path,
+                        data,
+                        validation,
+                    });
+                } else {
+                    report.invalid.push(RejectedPackage { path, validation });
+                }
             }
             Err(error) => report.errors.push(ScanError { path, error }),
         }
     }
 
     report
+}
+
+/// Whether `conflict` involves the package named `name` (as a requirer,
+/// or as the package itself for an API version mismatch).
+fn conflict_involves(conflict: &nyarix_loader::Conflict, name: &str) -> bool {
+    use nyarix_loader::Conflict;
+    match conflict {
+        Conflict::IncompatibleVersions { requirements, .. } => {
+            requirements.iter().any(|requirement| requirement.requirer == name)
+        }
+        Conflict::MissingDependency { requirers, .. } => {
+            requirers.iter().any(|requirer| requirer == name)
+        }
+        Conflict::IncompatibleApiVersion { module, .. } => module == name,
+    }
 }
 
 #[cfg(test)]
