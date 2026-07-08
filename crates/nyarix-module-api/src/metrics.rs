@@ -170,18 +170,14 @@ impl MetricRegistry {
     /// named `name` under `module`.
     #[must_use]
     pub fn counter(&self, module: &str, name: &str) -> Arc<Counter> {
-        Arc::clone(
-            self.counters
-                .entry(metric_name(module, name))
-                .or_default(),
-        )
+        Arc::clone(&self.counters.entry(metric_name(module, name)).or_default())
     }
 
     /// Get (or, on first call for this name, register) the gauge named
     /// `name` under `module`.
     #[must_use]
     pub fn gauge(&self, module: &str, name: &str) -> Arc<Gauge> {
-        Arc::clone(self.gauges.entry(metric_name(module, name)).or_default())
+        Arc::clone(&self.gauges.entry(metric_name(module, name)).or_default())
     }
 
     /// Get (or, on first call for this name, register with `bounds`)
@@ -192,7 +188,8 @@ impl MetricRegistry {
     #[must_use]
     pub fn histogram(&self, module: &str, name: &str, bounds: Vec<f64>) -> Arc<Histogram> {
         Arc::clone(
-            self.histograms
+            &self
+                .histograms
                 .entry(metric_name(module, name))
                 .or_insert_with(|| Arc::new(Histogram::new(bounds))),
         )
