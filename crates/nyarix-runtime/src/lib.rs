@@ -9,24 +9,29 @@
 //! timeout). [`IoPool`] (#45) and [`CpuPool`] (#46) are the Scheduler's
 //! two worker pools, isolating I/O-bound and CPU-bound work from each
 //! other, and [`TaskPriority`] / [`priority::priority_queue`] (#47) is
-//! the Scheduler's priority model and queue primitive. The rest (module
-//! loader, dependency resolver, metrics) are still their own later
-//! milestone issues.
+//! the Scheduler's priority model and queue primitive.
+//! [`module_loader::load_modules`] (#41) scans and validates `.nyp`
+//! packages (M5/M6, #50-#66) — everything up to but not including
+//! actually instantiating a module, which needs #107. The rest
+//! (dependency resolver wiring into the graph, metrics) are still their
+//! own later milestone issues.
 
 pub mod cpu_pool;
 pub mod execution_loop;
 pub mod init;
 pub mod io_pool;
+pub mod module_loader;
 pub mod priority;
 pub mod shutdown;
 
 pub use cpu_pool::CpuPool;
 pub use execution_loop::{
-    DEFAULT_SHUTDOWN_TIMEOUT, ExecutionLoopError, initialize_all_nodes, run, run_with_timeout,
-    shutdown_all_nodes,
+    initialize_all_nodes, run, run_with_timeout, shutdown_all_nodes, ExecutionLoopError,
+    DEFAULT_SHUTDOWN_TIMEOUT,
 };
 pub use init::{RuntimeHandle, RuntimeInitError};
 pub use io_pool::IoPool;
+pub use module_loader::{load_modules, LoadedPackage, ModuleLoadReport, RejectedPackage};
 pub use nyarix_module_api::{Event, EventBus, EventFilter, EventKind};
-pub use priority::{PriorityReceiver, PrioritySender, TaskPriority, priority_queue};
+pub use priority::{priority_queue, PriorityReceiver, PrioritySender, TaskPriority};
 pub use shutdown::cancel_on_ctrl_c;
