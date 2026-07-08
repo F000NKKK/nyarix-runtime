@@ -266,6 +266,38 @@ pub fn execute_sequential(
     result
 }
 
+/// Enqueue `packet` into `node`'s own input queue (#97) and immediately
+/// dequeue whichever packet priority puts next — the synchronous half
+/// of the "route every hop through the node's `NodeQueue`" contract,
+/// for callers (`execute_sequential`) that can't `.await`.
+///
+/// Since a packet was just successfully enqueued, there's always
+/// something to dequeue — though not necessarily *this* packet, if
+/// `node` has concurrent producers (multiple branches converging on
+/// one node, see [`nyarix_module_api::NodeType::Aggregator`]'s docs,
+/// #96): whichever packet priority picks next is what `node.process`
+/// actually runs on. For every node with a single producer (the
+/// common case), that's always the one just pushed.
+///
+/// # Errors
+/// Returns [`ExecutionError::Graph`] with [`GraphError::BuildFailed`]
+/// if the node's queue is full (backpressure, #35).
+fn enqueue_and_dequeue_sync(
+    node: &mut GraphNode,
+    packet: Packet,
+) -> Result<Packet, ExecutionError> {
+    let sender = node.queue_sender();
+    sender.try_send(packet).map_err(|_| {
+        ExecutionError::Graph(GraphError::BuildFailed {
+            reason: format!("node {} input queue is full", node.id()),
+        })
+    })?;
+    Ok(node
+        .queue_receiver_mut()
+        .try_recv_prioritized()
+        .expect("a packet was just enqueued into this node's own queue"))
+}
+
 fn execute_sequential_inner(
     graph: &mut FlowGraph,
     entry: NodeId,
@@ -289,8 +321,9 @@ fn execute_sequential_inner(
 
         check_payload_limit(node, &packet)?;
         packet.metadata_mut().record_hop(current);
+        let queued_packet = enqueue_and_dequeue_sync(node, packet)?;
         let started = Instant::now();
-        let outcome = node.process(packet);
+        let outcome = node.process(queued_packet);
         let elapsed = started.elapsed();
         record_node_metrics(metrics, node, elapsed, outcome.is_ok());
         record_and_check_processing_time(node, elapsed)?;
@@ -334,17 +367,44 @@ async fn walk_node(
     mut packet: Packet,
     metrics: Option<&MetricRegistry>,
 ) -> Result<WalkStep, ExecutionError> {
+    // Step 1: validate against this node, then release the graph lock
+    // before awaiting queue space (#97) — so one branch waiting on a
+    // full/contended queue doesn't hold the *entire graph* locked and
+    // block every other concurrent branch from even reaching their own
+    // nodes.
+    let sender = {
+        let mut guard = graph.lock().await;
+        let node = guard
+            .node_mut(current)
+            .ok_or_else(|| GraphError::MissingNode {
+                node_id: current.to_string(),
+            })?;
+        check_payload_limit(node, &packet)?;
+        node.queue_sender()
+    };
+    packet.metadata_mut().record_hop(current);
+    sender.send(packet).await.map_err(|_| GraphError::BuildFailed {
+        reason: format!("node {current} input queue closed"),
+    })?;
+
+    // Step 2: re-lock, dequeue with priority, and process. This always
+    // resolves without waiting — a packet was just enqueued into this
+    // node's own queue — though not necessarily *this* branch's own
+    // packet, if `current` has concurrent producers; see
+    // `enqueue_and_dequeue_sync`'s docs (#96/#97) on why that's fine.
     let mut guard = graph.lock().await;
     let node = guard
         .node_mut(current)
         .ok_or_else(|| GraphError::MissingNode {
             node_id: current.to_string(),
         })?;
-
-    check_payload_limit(node, &packet)?;
-    packet.metadata_mut().record_hop(current);
+    let queued_packet = node
+        .queue_receiver_mut()
+        .recv()
+        .await
+        .expect("a packet was just enqueued into this node's own queue");
     let started = Instant::now();
-    let outcome = node.process(packet);
+    let outcome = node.process(queued_packet);
     let elapsed = started.elapsed();
     record_node_metrics(metrics, node, elapsed, outcome.is_ok());
     record_and_check_processing_time(node, elapsed)?;
