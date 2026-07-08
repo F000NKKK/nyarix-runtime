@@ -524,6 +524,7 @@ dependencies = [
  "serde",
  "thiserror",
  "tokio",
+ "tokio-util",
  "toml",
  "tracing",
 ]
