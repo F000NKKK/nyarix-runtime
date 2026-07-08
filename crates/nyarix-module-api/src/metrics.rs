@@ -150,6 +150,66 @@ pub struct HistogramSnapshot {
     pub count: u64,
 }
 
+impl HistogramSnapshot {
+    /// Estimate the value at `percentile` (0.0–1.0) via linear
+    /// interpolation across cumulative bucket counts (#84).
+    ///
+    /// Returns `None` when there are no observations. A percentile of
+    /// 1.0 (p100) is clamped to the highest observed value — since
+    /// there's no upper bound on the implicit `+Infinity` bucket,
+    /// p100 can't be exactly computed from buckets alone, so this
+    /// returns the last finite bound as an approximation.
+    #[must_use]
+    pub fn percentile(&self, p: f64) -> Option<f64> {
+        if self.count == 0 {
+            return None;
+        }
+        let target = (p.clamp(0.0, 1.0) * self.count as f64).ceil() as u64;
+
+        let mut cumulative: u64 = 0;
+        for (i, &bound) in self.bounds.iter().enumerate() {
+            let bucket_count = self.counts[i];
+            let next = cumulative + bucket_count;
+            if target <= next {
+                // The target falls inside this bucket.
+                // Linearly interpolate between `prev_bound` (or 0) and `bound`.
+                let prev_bound = if i == 0 { 0.0 } else { self.bounds[i - 1] };
+                let prev_cumulative = cumulative;
+                let fraction = if bucket_count == 0 {
+                    0.0
+                } else {
+                    (target - prev_cumulative) as f64 / bucket_count as f64
+                };
+                return Some(prev_bound + fraction * (bound - prev_bound));
+            }
+            cumulative = next;
+        }
+
+        // Target falls in the trailing +Infinity bucket.
+        // Return the last finite bound — there's no way to know how far
+        // into +Infinity the observations are.
+        self.bounds.last().copied()
+    }
+
+    /// Convenience: estimated median (p50).
+    #[must_use]
+    pub fn p50(&self) -> Option<f64> {
+        self.percentile(0.50)
+    }
+
+    /// Convenience: estimated 95th percentile.
+    #[must_use]
+    pub fn p95(&self) -> Option<f64> {
+        self.percentile(0.95)
+    }
+
+    /// Convenience: estimated 99th percentile.
+    #[must_use]
+    pub fn p99(&self) -> Option<f64> {
+        self.percentile(0.99)
+    }
+}
+
 /// A thread-safe registry of counters, gauges, and histograms,
 /// namespaced per module (see [`metric_name`]).
 #[derive(Debug, Default)]
@@ -383,5 +443,45 @@ mod tests {
         handle.counter("quic", "packets_sent").unwrap().increment(1);
 
         assert_eq!(registry.counter("quic", "packets_sent").value(), 1);
+    }
+
+    #[test]
+    fn percentile_returns_none_for_empty_histogram() {
+        let histogram = Histogram::new(vec![10.0, 50.0]);
+        let snapshot = histogram.snapshot();
+        assert_eq!(snapshot.p50(), None);
+    }
+
+    #[test]
+    fn percentile_estimates_p50_p95_p99_from_buckets() {
+        let histogram = Histogram::new(vec![10.0, 50.0, 100.0]);
+        // 10 observations: 5, 15, 25, 35, 45, 55, 65, 75, 85, 95
+        for &v in &[5.0, 15.0, 25.0, 35.0, 45.0, 55.0, 65.0, 75.0, 85.0, 95.0] {
+            histogram.observe(v);
+        }
+        let snapshot = histogram.snapshot();
+
+        // p50 = 5th observation = 45 (in bucket 2: 10..50)
+        let p50 = snapshot.p50().unwrap();
+        assert!(p50 >= 40.0 && p50 <= 50.0, "p50={p50}");
+
+        // p95 = 10th observation = 95 (in bucket 3: 50..100)
+        let p95 = snapshot.p95().unwrap();
+        assert!(p95 >= 90.0 && p95 <= 100.0, "p95={p95}");
+
+        // p99 ≈ same as p95 for this small dataset
+        let p99 = snapshot.p99().unwrap();
+        assert!(p99 >= 90.0 && p99 <= 100.0, "p99={p99}");
+    }
+
+    #[test]
+    fn percentile_all_in_first_bucket() {
+        let histogram = Histogram::new(vec![50.0]);
+        for _ in 0..10 {
+            histogram.observe(10.0);
+        }
+        let snapshot = histogram.snapshot();
+        let p50 = snapshot.p50().unwrap();
+        assert!(p50 >= 0.0 && p50 <= 50.0, "p50={p50}");
     }
 }

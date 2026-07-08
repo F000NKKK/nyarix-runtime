@@ -13,6 +13,7 @@ pub mod graph;
 pub mod metrics;
 pub mod node;
 pub mod queue;
+pub mod throughput;
 
 pub use condition::Condition;
 pub use edge::{Edge, EdgeType};
@@ -21,3 +22,4 @@ pub use graph::FlowGraph;
 pub use metrics::NodeMetrics;
 pub use node::{GraphNode, NodeConfig, NodeState};
 pub use queue::{NodeQueueReceiver, NodeQueueSender, node_queue};
+pub use throughput::ThroughputTracker;

@@ -31,6 +31,7 @@ use thiserror::Error;
 
 use crate::graph::FlowGraph;
 use crate::node::GraphNode;
+use crate::throughput::ThroughputTracker;
 
 /// Histogram bucket bounds for `process_duration_us` (#82), in
 /// microseconds — a spread wide enough for both packet-processing

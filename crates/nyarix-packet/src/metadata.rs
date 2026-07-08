@@ -58,6 +58,14 @@ pub struct Metadata {
     pub reliability: Reliability,
 
     // ── Lifecycle / Tracing ──────────────────────────
+    /// Wall-clock instant when this packet was created (#84).
+    ///
+    /// Skipped during serialization — `Instant` is
+    /// runtime-local and has no stable cross-process
+    /// meaning, but nodes within the same runtime can
+    /// inspect it to gauge packet age.
+    #[serde(skip, default = "Instant::now")]
+    pub created_at: Instant,
     /// Time-to-live in graph hops.
     pub ttl: u8,
     /// Number of times this packet has been retried.
@@ -156,6 +164,7 @@ impl Metadata {
             mtu_hint: None,
             latency_hint_us: None,
             reliability: Reliability::default(),
+            created_at: Instant::now(),
             ttl: DEFAULT_TTL,
             retry_count: 0,
             origin_module: None,
