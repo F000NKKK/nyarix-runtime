@@ -10,6 +10,7 @@ rust-version.workspace = true
 nyarix-error.workspace = true
 nyarix-module-api.workspace = true
 nyarix-package.workspace = true
+nyarix-packet.workspace = true
 semver.workspace = true
 thiserror.workspace = true
 

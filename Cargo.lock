@@ -306,6 +306,7 @@ dependencies = [
  "nyarix-error",
  "nyarix-module-api",
  "nyarix-package",
+ "nyarix-packet",
  "semver",
  "thiserror",
 ]
