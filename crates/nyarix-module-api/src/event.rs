@@ -107,6 +107,17 @@ pub enum Event {
         /// The available version.
         version: String,
     },
+    /// A module was denied a capability it requested (#73/#74) — the
+    /// Runtime's "уведомить EventBus" step so other subscribers (a UI,
+    /// monitoring, an audit log) learn about the denial without polling
+    /// anything; the module itself already got a `SecurityError`
+    /// directly back from the call that triggered this.
+    CapabilityDenied {
+        /// The module that was denied.
+        module: String,
+        /// The capability it was denied, e.g. `"network"`.
+        capability: String,
+    },
     /// A module published a custom, application-defined event through
     /// `RuntimeContext::emit_event` (#49) that doesn't fit one of the
     /// typed variants above.
@@ -151,6 +162,8 @@ pub enum EventKind {
     HealthRestored,
     /// See [`Event::UpdateAvailable`].
     UpdateAvailable,
+    /// See [`Event::CapabilityDenied`].
+    CapabilityDenied,
     /// See [`Event::Custom`].
     Custom,
 }
@@ -185,6 +198,7 @@ impl Event {
             Self::HealthDegraded { .. } => EventKind::HealthDegraded,
             Self::HealthRestored { .. } => EventKind::HealthRestored,
             Self::UpdateAvailable { .. } => EventKind::UpdateAvailable,
+            Self::CapabilityDenied { .. } => EventKind::CapabilityDenied,
             Self::Custom { .. } => EventKind::Custom,
         }
     }
@@ -444,6 +458,22 @@ mod tests {
             event,
             Event::ProfileApplied {
                 profile: "stealth".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn capability_denied_carries_the_module_and_capability() {
+        let event = Event::CapabilityDenied {
+            module: "quic-transport".to_string(),
+            capability: "network".to_string(),
+        };
+        assert_eq!(event.kind(), EventKind::CapabilityDenied);
+        assert_eq!(
+            event,
+            Event::CapabilityDenied {
+                module: "quic-transport".to_string(),
+                capability: "network".to_string(),
             }
         );
     }
