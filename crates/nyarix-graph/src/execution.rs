@@ -243,6 +243,11 @@ fn record_node_metrics(
 /// one absorbed along the way, #19, or one whose traversal errored;
 /// either way it never reached an exit point, which is the flow-level
 /// distinction this metric cares about).
+///
+/// Every hop also calls `packet.metadata_mut().record_hop(current)`
+/// (#87) — a no-op unless the packet opted into tracing via
+/// [`nyarix_packet::Metadata::with_tracing`], so untraced packets (the
+/// common case, per #87's sampling ask) pay nothing here.
 pub fn execute_sequential(
     graph: &mut FlowGraph,
     entry: NodeId,
@@ -326,7 +331,7 @@ enum WalkStep {
 async fn walk_node(
     graph: &Arc<tokio::sync::Mutex<FlowGraph>>,
     current: NodeId,
-    packet: Packet,
+    mut packet: Packet,
     metrics: Option<&MetricRegistry>,
 ) -> Result<WalkStep, ExecutionError> {
     let mut guard = graph.lock().await;
@@ -337,6 +342,7 @@ async fn walk_node(
         })?;
 
     check_payload_limit(node, &packet)?;
+    packet.metadata_mut().record_hop(current);
     let started = Instant::now();
     let outcome = node.process(packet);
     let elapsed = started.elapsed();
@@ -643,6 +649,77 @@ mod tests {
 
         let result = execute_sequential(&mut graph, a_id, pkt, None, None).unwrap();
         assert_eq!(result.unwrap().id(), id);
+    }
+
+    #[test]
+    fn untraced_packets_do_not_record_a_path() {
+        let mut graph = FlowGraph::new();
+        let a = node(StubNode::new("source", NodeType::Source));
+        let b = node(StubNode::new("transformer", NodeType::Transformer));
+        let (a_id, b_id) = (a.id(), b.id());
+        graph.add_node(a);
+        graph.add_node(b);
+        graph.mark_exit_point(b_id);
+        let (edge, _rx) = crate::edge::Edge::new(a_id, b_id, EdgeType::Sequential, None, 8);
+        graph.connect(edge).unwrap();
+
+        let pkt = Packet::new(b"hello".as_slice());
+        let result = execute_sequential(&mut graph, a_id, pkt, None, None)
+            .unwrap()
+            .unwrap();
+
+        assert!(result.metadata().trace.is_empty());
+    }
+
+    #[test]
+    fn traced_packets_record_the_path_through_the_graph() {
+        let mut graph = FlowGraph::new();
+        let a = node(StubNode::new("source", NodeType::Source));
+        let b = node(StubNode::new("transformer", NodeType::Transformer));
+        let c = node(StubNode::new("sink", NodeType::Sink));
+        let (a_id, b_id, c_id) = (a.id(), b.id(), c.id());
+        graph.add_node(a);
+        graph.add_node(b);
+        graph.add_node(c);
+        let (ab, _rx1) = crate::edge::Edge::new(a_id, b_id, EdgeType::Sequential, None, 8);
+        let (bc, _rx2) = crate::edge::Edge::new(b_id, c_id, EdgeType::Sequential, None, 8);
+        graph.connect(ab).unwrap();
+        graph.connect(bc).unwrap();
+
+        let pkt = Packet::with_metadata(
+            b"hello".as_slice(),
+            nyarix_packet::Metadata::new().with_tracing(false),
+        );
+        let result = execute_sequential(&mut graph, a_id, pkt, None, None)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(result.metadata().trace, vec![a_id, b_id, c_id]);
+        assert!(result.metadata().trace_timestamps_ms.is_empty());
+    }
+
+    #[test]
+    fn detailed_tracing_also_records_a_timestamp_per_hop() {
+        let mut graph = FlowGraph::new();
+        let a = node(StubNode::new("source", NodeType::Source));
+        let b = node(StubNode::new("sink", NodeType::Sink));
+        let (a_id, b_id) = (a.id(), b.id());
+        graph.add_node(a);
+        graph.add_node(b);
+        graph.mark_exit_point(b_id);
+        let (edge, _rx) = crate::edge::Edge::new(a_id, b_id, EdgeType::Sequential, None, 8);
+        graph.connect(edge).unwrap();
+
+        let pkt = Packet::with_metadata(
+            b"hello".as_slice(),
+            nyarix_packet::Metadata::new().with_tracing(true),
+        );
+        let result = execute_sequential(&mut graph, a_id, pkt, None, None)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(result.metadata().trace.len(), 2);
+        assert_eq!(result.metadata().trace_timestamps_ms.len(), 2);
     }
 
     #[test]
