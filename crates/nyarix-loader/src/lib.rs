@@ -2,9 +2,10 @@
 //! building a dependency graph over what was found (#53), picking a
 //! concrete version per dependency while honoring `optional = true`
 //! (#54/#56), categorizing conflicts with human-readable messages
-//! (#55), instantiating an already-loaded module (#57), and running the
+//! (#55), instantiating an already-loaded module (#57), running the
 //! full validation pipeline over a candidate package ([`validation`],
-//! #64).
+//! #64), and installing a validated package onto disk ([`installer`],
+//! #65).
 //!
 //! **Scope note:** [`instantiation::instantiate`] takes a `Box<dyn
 //! Module>` the caller already produced — actually loading a module's
@@ -13,12 +14,14 @@
 
 pub mod conflict;
 pub mod dependency_graph;
+pub mod installer;
 pub mod instantiation;
 pub mod validation;
 pub mod version_resolver;
 
 pub use conflict::{Conflict, detect_conflicts};
 pub use dependency_graph::{DependencyCycle, DependencyGraph};
+pub use installer::{InstallOutcome, default_install_root, install_package};
 pub use instantiation::{InstantiationError, ModuleRegistry, instantiate};
 pub use validation::{ValidationReport, validate_package};
 pub use version_resolver::{Requirement, ResolvedVersions, VersionConflict, resolve_versions};
@@ -105,7 +108,10 @@ impl ModuleIndex {
 
     /// Insert a discovered package, unless its exact name+version is
     /// already present (a duplicate).
-    fn insert(&mut self, package: DiscoveredPackage) -> Option<DuplicateModule> {
+    ///
+    /// `pub(crate)` rather than private: the installer (#65) also
+    /// registers newly installed packages through this same method.
+    pub(crate) fn insert(&mut self, package: DiscoveredPackage) -> Option<DuplicateModule> {
         let existing = self.packages.entry(package.name.clone()).or_default();
         if let Some(first) = existing
             .iter()
