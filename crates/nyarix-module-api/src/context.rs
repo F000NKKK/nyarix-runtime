@@ -121,6 +121,61 @@ impl RuntimeContext {
         CapabilityGrant::request(&metadata.required_capabilities, self.granted_capabilities)
     }
 
+    /// Request a single `capability` at runtime — not just at load time
+    /// like [`Self::request_capabilities`] — and handle a denial
+    /// gracefully rather than fatally (#74's "graceful degradation").
+    ///
+    /// A module calls this right before doing something that needs a
+    /// specific capability (e.g. right before opening a socket, for
+    /// [`crate::capability::Capability::Network`]). If it's not in
+    /// [`Self::granted_capabilities`]:
+    /// - the Runtime is **not** crashed — this returns an `Err`, same as
+    ///   any other fallible call;
+    /// - the caller (the module) gets that `Err` back and decides its
+    ///   own fallback path — this function doesn't invent a generic
+    ///   substitute behavior, since only the module knows what
+    ///   "degraded" means for it (see [`crate::health::Health::Degraded`]
+    ///   for how it can then report that to the Runtime);
+    /// - an [`Event::CapabilityDenied`] is published on this context's
+    ///   [`EventBus`] (if any), so other subscribers (a UI, monitoring,
+    ///   an audit trail) learn about the denial without polling.
+    ///
+    /// Requesting privilege escalation from the user interactively isn't
+    /// implemented — this workspace has no UI/interaction channel yet
+    /// (`Capability::UiHooks` is declarable but nothing consumes it),
+    /// tracked separately.
+    ///
+    /// # Errors
+    /// Returns [`nyarix_error::SecurityError::CapabilityDenied`] if
+    /// `capability` isn't in [`Self::granted_capabilities`].
+    pub fn request_capability(
+        &self,
+        metadata: &ModuleMetadata,
+        capability: crate::capability::Capability,
+    ) -> Result<(), nyarix_error::SecurityError> {
+        if self.granted_capabilities.has(capability) {
+            return Ok(());
+        }
+
+        let module = metadata.name.clone();
+        let capability_name = format!("{capability:?}").to_lowercase();
+
+        tracing::warn!(
+            module = %module,
+            capability = %capability_name,
+            "capability denied at runtime"
+        );
+        self.emit_event(Event::CapabilityDenied {
+            module: module.clone(),
+            capability: capability_name.clone(),
+        });
+
+        Err(nyarix_error::SecurityError::CapabilityDenied {
+            module,
+            capability: capability_name,
+        })
+    }
+
     /// This module's configuration.
     #[must_use]
     pub fn config(&self) -> &ModuleConfig {
