@@ -8,21 +8,45 @@
 //! execution engine — this is deliberately the simplest possible runner.
 
 use nyarix_core::NodeId;
-use nyarix_error::GraphError;
+use nyarix_error::{GraphError, ModuleError};
 use nyarix_packet::Packet;
 use thiserror::Error;
 
 use crate::graph::FlowGraph;
+use crate::node::GraphNode;
 
 /// Error produced while executing a packet through the graph.
 #[derive(Debug, Error)]
 pub enum ExecutionError {
     /// A node's module failed to process the packet.
     #[error("module processing failed: {0}")]
-    Module(#[from] nyarix_error::ModuleError),
+    Module(#[from] ModuleError),
     /// A graph-structural problem (missing node, dead end, ...).
     #[error("graph error: {0}")]
     Graph(#[from] GraphError),
+}
+
+/// Check a packet's payload against `node`'s declared
+/// [`nyarix_module_api::ResourceLimits::max_payload_bytes`] (#76's
+/// "Лимит на размер payload в обработке") *before* handing it to
+/// `Module::process` — an oversized payload never reaches the module
+/// at all, rather than trusting the module to reject it itself.
+///
+/// No declared limit (`None`) means unbounded, same convention as every
+/// other [`nyarix_module_api::ResourceLimits`] field.
+fn check_payload_limit(node: &GraphNode, packet: &Packet) -> Result<(), ExecutionError> {
+    let metadata = node.module().metadata();
+    let Some(max) = metadata.resource_limits.max_payload_bytes else {
+        return Ok(());
+    };
+    let size = u64::try_from(packet.len()).unwrap_or(u64::MAX);
+    if size > max {
+        return Err(ExecutionError::Module(ModuleError::QuotaExceeded {
+            name: metadata.name.clone(),
+            resource: "payload_size".to_string(),
+        }));
+    }
+    Ok(())
 }
 
 /// Run a packet through the graph starting at `entry`, following
@@ -59,6 +83,7 @@ pub fn execute_sequential(
                 node_id: current.to_string(),
             })?;
 
+        check_payload_limit(node, &packet)?;
         packet = match node.process(packet)? {
             Some(packet) => packet,
             None => return Ok(None),
@@ -105,6 +130,7 @@ async fn walk_node(
             node_id: current.to_string(),
         })?;
 
+    check_payload_limit(node, &packet)?;
     let processed = match node.process(packet)? {
         Some(packet) => packet,
         None => return Ok(WalkStep::Absorbed),
@@ -266,6 +292,20 @@ mod tests {
                 ..Self::new(name, node_type)
             }
         }
+
+        fn with_max_payload_bytes(name: &str, node_type: NodeType, max: u64) -> Self {
+            let metadata =
+                ModuleMetadata::new(name, semver::Version::new(0, 1, 0), ModuleType::Flow)
+                    .with_resource_limits(nyarix_module_api::ResourceLimits {
+                        max_payload_bytes: Some(max),
+                        ..nyarix_module_api::ResourceLimits::unbounded()
+                    });
+            Self {
+                metadata,
+                node_type,
+                absorb: false,
+            }
+        }
     }
 
     impl Module for StubNode {
@@ -273,11 +313,11 @@ mod tests {
             &self.metadata
         }
 
-        fn initialize(&mut self, _ctx: &RuntimeContext) -> Result<(), nyarix_error::ModuleError> {
+        fn initialize(&mut self, _ctx: &RuntimeContext) -> Result<(), ModuleError> {
             Ok(())
         }
 
-        fn process(&mut self, packet: Packet) -> Result<Option<Packet>, nyarix_error::ModuleError> {
+        fn process(&mut self, packet: Packet) -> Result<Option<Packet>, ModuleError> {
             if self.absorb {
                 Ok(None)
             } else {
@@ -285,7 +325,7 @@ mod tests {
             }
         }
 
-        fn shutdown(&mut self, _ctx: &RuntimeContext) -> Result<(), nyarix_error::ModuleError> {
+        fn shutdown(&mut self, _ctx: &RuntimeContext) -> Result<(), ModuleError> {
             Ok(())
         }
 
@@ -388,6 +428,46 @@ mod tests {
             result,
             Err(ExecutionError::Graph(GraphError::MissingNode { .. }))
         ));
+    }
+
+    #[test]
+    fn an_oversized_payload_is_rejected_before_reaching_the_module() {
+        let mut graph = FlowGraph::new();
+        let a = node(StubNode::with_max_payload_bytes(
+            "limited",
+            NodeType::Source,
+            5,
+        ));
+        let a_id = a.id();
+        graph.mark_exit_point(a_id);
+        graph.add_node(a);
+
+        let result = execute_sequential(&mut graph, a_id, Packet::new(b"way too big".as_slice()));
+
+        let Err(ExecutionError::Module(ModuleError::QuotaExceeded { name, resource })) = result
+        else {
+            panic!("expected QuotaExceeded");
+        };
+        assert_eq!(name, "limited");
+        assert_eq!(resource, "payload_size");
+    }
+
+    #[test]
+    fn a_payload_within_the_limit_is_processed_normally() {
+        let mut graph = FlowGraph::new();
+        let a = node(StubNode::with_max_payload_bytes(
+            "limited",
+            NodeType::Source,
+            5,
+        ));
+        let a_id = a.id();
+        graph.mark_exit_point(a_id);
+        graph.add_node(a);
+
+        let pkt = Packet::new(b"ok".as_slice());
+        let id = pkt.id();
+        let result = execute_sequential(&mut graph, a_id, pkt).unwrap();
+        assert_eq!(result.unwrap().id(), id);
     }
 
     fn shared(graph: FlowGraph) -> Arc<tokio::sync::Mutex<FlowGraph>> {
