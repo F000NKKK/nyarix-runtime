@@ -442,6 +442,63 @@ mod tests {
     }
 
     #[test]
+    fn request_capability_succeeds_when_granted() {
+        use crate::capability::Capability;
+
+        let mask = CapabilityMask::from_capabilities(&[Capability::Network]);
+        let ctx = RuntimeContext::empty().with_granted_capabilities(mask);
+        let metadata = support::new_metadata("quic-transport");
+
+        assert!(ctx.request_capability(&metadata, Capability::Network).is_ok());
+    }
+
+    #[test]
+    fn request_capability_does_not_panic_when_denied_and_returns_an_error() {
+        use crate::capability::Capability;
+
+        let ctx = RuntimeContext::empty();
+        let metadata = support::new_metadata("quic-transport");
+
+        let Err(err) = ctx.request_capability(&metadata, Capability::Network) else {
+            panic!("expected request_capability to fail");
+        };
+
+        let nyarix_error::SecurityError::CapabilityDenied { module, capability } = err else {
+            panic!("expected CapabilityDenied");
+        };
+        assert_eq!(module, "quic-transport");
+        assert_eq!(capability, "network");
+    }
+
+    #[tokio::test]
+    async fn a_denied_capability_request_is_published_on_the_event_bus() {
+        use crate::capability::Capability;
+
+        let bus = Arc::new(EventBus::default());
+        let ctx = RuntimeContext::with_event_bus(ModuleConfig::empty(), HashMap::new(), bus);
+        let metadata = support::new_metadata("quic-transport");
+
+        let received: Arc<Mutex<Vec<Event>>> = Arc::new(Mutex::new(Vec::new()));
+        let received_clone = Arc::clone(&received);
+        ctx.on_event(EventFilter::All, move |event| {
+            received_clone.lock().unwrap().push(event);
+        });
+
+        let _ = ctx.request_capability(&metadata, Capability::Network);
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        let received = received.lock().unwrap();
+        assert_eq!(received.len(), 1);
+        assert_eq!(
+            received[0],
+            Event::CapabilityDenied {
+                module: "quic-transport".to_string(),
+                capability: "network".to_string(),
+            }
+        );
+    }
+
+    #[test]
     fn emit_event_does_not_panic_without_a_bus() {
         let ctx = RuntimeContext::empty();
         ctx.emit_event(Event::new("test_event"));
