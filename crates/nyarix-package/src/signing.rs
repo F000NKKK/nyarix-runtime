@@ -148,7 +148,10 @@ mod tests {
     fn signable_bytes_excludes_existing_signature_entries() {
         let base = entries();
         let mut with_signature = base.clone();
-        with_signature.push((SIGNATURE_MEMBER_PATH.to_string(), b"some-signature".to_vec()));
+        with_signature.push((
+            SIGNATURE_MEMBER_PATH.to_string(),
+            b"some-signature".to_vec(),
+        ));
 
         assert_eq!(signable_bytes(&base), signable_bytes(&with_signature));
     }

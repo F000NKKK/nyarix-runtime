@@ -5,8 +5,8 @@ use std::io::{Cursor, Read};
 use nyarix_error::PackageError;
 
 use crate::manifest::PackageManifest;
-use crate::signing::{self, SigningKey, PUBLIC_KEY_MEMBER_PATH, SIGNATURE_MEMBER_PATH};
-use crate::{validate_layout, PackageMember};
+use crate::signing::{self, PUBLIC_KEY_MEMBER_PATH, SIGNATURE_MEMBER_PATH, SigningKey};
+use crate::{PackageMember, validate_layout};
 
 fn io_error(source: std::io::Error) -> PackageError {
     PackageError::Io {
