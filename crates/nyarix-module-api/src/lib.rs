@@ -20,6 +20,7 @@ pub mod platform;
 pub mod rate_limiter;
 pub mod resource_limits;
 pub mod sandbox;
+pub mod sandbox_permission;
 pub mod versioning;
 
 pub use capability::{Capability, CapabilityGrant, CapabilityMask};
@@ -37,4 +38,5 @@ pub use platform::Platform;
 pub use rate_limiter::RateLimiter;
 pub use resource_limits::ResourceLimits;
 pub use sandbox::SandboxHandle;
+pub use sandbox_permission::{AccessMode, SandboxPermission};
 pub use versioning::{ApiVersion, is_compatible};

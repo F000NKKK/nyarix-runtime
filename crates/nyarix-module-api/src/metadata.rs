@@ -1,23 +1,24 @@
 //! Module metadata (see issue #20).
 //!
-//! `ModuleMetadata` here is still not the *complete* #20 shape: `dependencies`
-//! and `sandbox_permissions` remain deferred. The dependency-matching syntax
-//! this comment used to say was still an open question is now decided —
+//! `ModuleMetadata` here is still not the *complete* #20 shape:
+//! `dependencies` remains deferred. The dependency-matching syntax this
+//! comment used to say was still an open question is now decided —
 //! `nyarix_package::manifest::DependencySpec` (#59/#56: a semver
 //! requirement plus an `optional` flag) — but adding a `dependencies`
 //! field here still isn't done: nothing yet consumes it from
 //! `ModuleMetadata` itself (Module instantiation, #57, is the earliest
 //! candidate), so it would be a guess which crate should own the type and
-//! whether `ModuleMetadata` needs its own copy at all. `sandbox_permissions`
-//! has no settled taxonomy anywhere in the backlog yet (unlike
-//! capabilities, which #21 fully specifies) — it needs Sandbox design
-//! (M7, #75) before its shape can be more than a guess.
+//! whether `ModuleMetadata` needs its own copy at all.
+//! [`crate::sandbox_permission::SandboxPermission`] (#93), the other
+//! field this used to defer pending Sandbox design (#75), now exists —
+//! see [`Self::sandbox_permissions`].
 
 use serde::{Deserialize, Serialize};
 
 use crate::capability::Capability;
 use crate::platform::Platform;
 use crate::resource_limits::ResourceLimits;
+use crate::sandbox_permission::SandboxPermission;
 use crate::versioning::ApiVersion;
 
 /// The functional category of a module.
@@ -77,6 +78,11 @@ pub struct ModuleMetadata {
     pub platforms: Vec<Platform>,
     /// Resource limits this module declares for itself.
     pub resource_limits: ResourceLimits,
+    /// Fine-grained sandbox permissions (#93) this module declares it
+    /// needs — specific paths/hosts, distinct from the coarse
+    /// [`Capability`] category. See [`SandboxPermission`]'s own docs
+    /// for how this relates to enforcement.
+    pub sandbox_permissions: Vec<SandboxPermission>,
 }
 
 impl ModuleMetadata {
