@@ -6,13 +6,15 @@ use std::sync::{Arc, Mutex};
 
 use tokio::task::JoinHandle;
 
-use crate::capability::{CapabilityGrant, CapabilityMask};
+use crate::capability::{Capability, CapabilityGrant, CapabilityMask};
 use crate::config::ModuleConfig;
 use crate::event::{Event, EventBus, EventFilter, EventHandler};
+use crate::io_policy::{FilesystemPolicy, NetworkPolicy};
 use crate::metadata::ModuleMetadata;
 use crate::metrics::MetricsHandle;
 use crate::module::Module;
 use crate::platform::Platform;
+use crate::rate_limiter::RateLimiter;
 use crate::sandbox::SandboxHandle;
 
 /// Context handed to a module by the Runtime during its lifecycle.
@@ -25,6 +27,9 @@ pub struct RuntimeContext {
     event_bus: Option<Arc<EventBus>>,
     subscriptions: Mutex<Vec<JoinHandle<()>>>,
     granted_capabilities: CapabilityMask,
+    filesystem_policy: FilesystemPolicy,
+    network_policy: NetworkPolicy,
+    io_rate_limiter: Option<RateLimiter>,
 }
 
 impl RuntimeContext {
@@ -46,6 +51,9 @@ impl RuntimeContext {
             event_bus: None,
             subscriptions: Mutex::new(Vec::new()),
             granted_capabilities: CapabilityMask::empty(),
+            filesystem_policy: FilesystemPolicy::deny_all(),
+            network_policy: NetworkPolicy::deny_all(),
+            io_rate_limiter: None,
         }
     }
 
@@ -63,6 +71,9 @@ impl RuntimeContext {
             event_bus: None,
             subscriptions: Mutex::new(Vec::new()),
             granted_capabilities: CapabilityMask::empty(),
+            filesystem_policy: FilesystemPolicy::deny_all(),
+            network_policy: NetworkPolicy::deny_all(),
+            io_rate_limiter: None,
         }
     }
 
@@ -84,6 +95,9 @@ impl RuntimeContext {
             event_bus: Some(event_bus),
             subscriptions: Mutex::new(Vec::new()),
             granted_capabilities: CapabilityMask::empty(),
+            filesystem_policy: FilesystemPolicy::deny_all(),
+            network_policy: NetworkPolicy::deny_all(),
+            io_rate_limiter: None,
         }
     }
 
@@ -151,7 +165,7 @@ impl RuntimeContext {
     pub fn request_capability(
         &self,
         metadata: &ModuleMetadata,
-        capability: crate::capability::Capability,
+        capability: Capability,
     ) -> Result<(), nyarix_error::SecurityError> {
         if self.granted_capabilities.has(capability) {
             return Ok(());
@@ -174,6 +188,113 @@ impl RuntimeContext {
             module,
             capability: capability_name,
         })
+    }
+
+    /// Attach a filesystem whitelist (#78) — defaults to
+    /// [`FilesystemPolicy::deny_all`] on every constructor.
+    #[must_use]
+    pub fn with_filesystem_policy(mut self, policy: FilesystemPolicy) -> Self {
+        self.filesystem_policy = policy;
+        self
+    }
+
+    /// Attach a network destination whitelist (#78) — defaults to
+    /// [`NetworkPolicy::deny_all`] on every constructor.
+    #[must_use]
+    pub fn with_network_policy(mut self, policy: NetworkPolicy) -> Self {
+        self.network_policy = policy;
+        self
+    }
+
+    /// Attach an I/O rate limiter (#78's "Rate limiting на I/O
+    /// операций") — shared by both [`Self::check_file_access`] and
+    /// [`Self::check_network_access`]. No limiter attached (the
+    /// default) means unlimited.
+    #[must_use]
+    pub fn with_io_rate_limiter(mut self, limiter: RateLimiter) -> Self {
+        self.io_rate_limiter = Some(limiter);
+        self
+    }
+
+    /// Check whether `metadata`'s module may access `path` (#78's
+    /// "Модуль не может открывать произвольные файлы"): requires
+    /// [`Capability::Filesystem`] (via [`Self::request_capability`]),
+    /// then the I/O rate limit, then [`FilesystemPolicy::allows`].
+    ///
+    /// **This mediates access for callers that go through it** — it
+    /// doesn't (and structurally can't, without the module isolation
+    /// boundary #75/#107 track) stop a native module from calling
+    /// `std::fs` directly instead. It's the API surface #78 asks
+    /// modules to use, not an unbypassable sandbox.
+    ///
+    /// # Errors
+    /// Returns [`nyarix_error::SecurityError::CapabilityDenied`] if
+    /// `Capability::Filesystem` wasn't granted, or
+    /// [`nyarix_error::SecurityError::SandboxViolation`] if the I/O rate
+    /// limit is exceeded or `path` isn't in the whitelist.
+    pub fn check_file_access(
+        &self,
+        metadata: &ModuleMetadata,
+        path: &std::path::Path,
+    ) -> Result<(), nyarix_error::SecurityError> {
+        self.request_capability(metadata, Capability::Filesystem)?;
+        self.check_rate_limit(metadata)?;
+        if !self.filesystem_policy.allows(path) {
+            return Err(nyarix_error::SecurityError::SandboxViolation {
+                module: metadata.name.clone(),
+                violation: format!("filesystem access to {} is not whitelisted", path.display()),
+            });
+        }
+        Ok(())
+    }
+
+    /// Check whether `metadata`'s module may connect to `host:port`
+    /// (#78's "Сетевые вызовы только через Runtime API" and "Whitelist
+    /// адресов/портов"): requires [`Capability::Network`] (via
+    /// [`Self::request_capability`]), then the I/O rate limit, then
+    /// [`NetworkPolicy::allows`].
+    ///
+    /// Same caveat as [`Self::check_file_access`] on this being a
+    /// mediated API surface, not an unbypassable sandbox for native
+    /// modules.
+    ///
+    /// # Errors
+    /// Returns [`nyarix_error::SecurityError::CapabilityDenied`] if
+    /// `Capability::Network` wasn't granted, or
+    /// [`nyarix_error::SecurityError::SandboxViolation`] if the I/O rate
+    /// limit is exceeded or `host:port` isn't in the whitelist.
+    pub fn check_network_access(
+        &self,
+        metadata: &ModuleMetadata,
+        host: &str,
+        port: u16,
+    ) -> Result<(), nyarix_error::SecurityError> {
+        self.request_capability(metadata, Capability::Network)?;
+        self.check_rate_limit(metadata)?;
+        if !self.network_policy.allows(host, port) {
+            return Err(nyarix_error::SecurityError::SandboxViolation {
+                module: metadata.name.clone(),
+                violation: format!("network access to {host}:{port} is not whitelisted"),
+            });
+        }
+        Ok(())
+    }
+
+    fn check_rate_limit(
+        &self,
+        metadata: &ModuleMetadata,
+    ) -> Result<(), nyarix_error::SecurityError> {
+        let Some(limiter) = &self.io_rate_limiter else {
+            return Ok(());
+        };
+        if limiter.try_acquire() {
+            Ok(())
+        } else {
+            Err(nyarix_error::SecurityError::SandboxViolation {
+                module: metadata.name.clone(),
+                violation: "I/O rate limit exceeded".to_string(),
+            })
+        }
     }
 
     /// This module's configuration.
@@ -471,6 +592,122 @@ mod tests {
         };
         assert_eq!(module, "quic-transport");
         assert_eq!(capability, "network");
+    }
+
+    #[test]
+    fn check_file_access_denies_without_the_filesystem_capability() {
+        let ctx = RuntimeContext::empty().with_filesystem_policy(FilesystemPolicy::allowing([
+            std::path::PathBuf::from("/tmp"),
+        ]));
+        let metadata = support::new_metadata("storage-module");
+
+        let Err(err) = ctx.check_file_access(&metadata, std::path::Path::new("/tmp/data")) else {
+            panic!("expected check_file_access to fail");
+        };
+        assert!(matches!(
+            err,
+            nyarix_error::SecurityError::CapabilityDenied { .. }
+        ));
+    }
+
+    #[test]
+    fn check_file_access_denies_a_path_outside_the_whitelist() {
+        use crate::capability::Capability;
+
+        let ctx = RuntimeContext::empty()
+            .with_granted_capabilities(CapabilityMask::from_capabilities(&[Capability::Filesystem]))
+            .with_filesystem_policy(FilesystemPolicy::allowing([std::path::PathBuf::from(
+                "/tmp",
+            )]));
+        let metadata = support::new_metadata("storage-module");
+
+        let Err(err) = ctx.check_file_access(&metadata, std::path::Path::new("/etc/passwd")) else {
+            panic!("expected check_file_access to fail");
+        };
+        assert!(matches!(
+            err,
+            nyarix_error::SecurityError::SandboxViolation { .. }
+        ));
+    }
+
+    #[test]
+    fn check_file_access_allows_a_whitelisted_path_with_the_capability_granted() {
+        use crate::capability::Capability;
+
+        let ctx = RuntimeContext::empty()
+            .with_granted_capabilities(CapabilityMask::from_capabilities(&[Capability::Filesystem]))
+            .with_filesystem_policy(FilesystemPolicy::allowing([std::path::PathBuf::from(
+                "/tmp",
+            )]));
+        let metadata = support::new_metadata("storage-module");
+
+        assert!(
+            ctx.check_file_access(&metadata, std::path::Path::new("/tmp/data"))
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn check_network_access_denies_a_destination_outside_the_whitelist() {
+        use crate::capability::Capability;
+
+        let ctx = RuntimeContext::empty()
+            .with_granted_capabilities(CapabilityMask::from_capabilities(&[Capability::Network]))
+            .with_network_policy(NetworkPolicy::deny_all().allow_host("example.com"));
+        let metadata = support::new_metadata("quic-transport");
+
+        let Err(err) = ctx.check_network_access(&metadata, "evil.example", 443) else {
+            panic!("expected check_network_access to fail");
+        };
+        assert!(matches!(
+            err,
+            nyarix_error::SecurityError::SandboxViolation { .. }
+        ));
+    }
+
+    #[test]
+    fn check_network_access_allows_a_whitelisted_destination() {
+        use crate::capability::Capability;
+
+        let ctx = RuntimeContext::empty()
+            .with_granted_capabilities(CapabilityMask::from_capabilities(&[Capability::Network]))
+            .with_network_policy(NetworkPolicy::deny_all().allow_host("example.com"));
+        let metadata = support::new_metadata("quic-transport");
+
+        assert!(
+            ctx.check_network_access(&metadata, "example.com", 443)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn the_io_rate_limiter_is_shared_between_file_and_network_checks() {
+        use crate::capability::Capability;
+
+        let ctx = RuntimeContext::empty()
+            .with_granted_capabilities(CapabilityMask::from_capabilities(&[
+                Capability::Filesystem,
+                Capability::Network,
+            ]))
+            .with_filesystem_policy(FilesystemPolicy::allowing([std::path::PathBuf::from(
+                "/tmp",
+            )]))
+            .with_network_policy(NetworkPolicy::deny_all().allow_host("example.com"))
+            .with_io_rate_limiter(crate::rate_limiter::RateLimiter::new(1, 0));
+        let metadata = support::new_metadata("busy-module");
+
+        assert!(
+            ctx.check_file_access(&metadata, std::path::Path::new("/tmp/data"))
+                .is_ok()
+        );
+
+        let Err(err) = ctx.check_network_access(&metadata, "example.com", 443) else {
+            panic!("expected the shared rate limiter to already be exhausted");
+        };
+        assert!(matches!(
+            err,
+            nyarix_error::SecurityError::SandboxViolation { .. }
+        ));
     }
 
     #[tokio::test]
