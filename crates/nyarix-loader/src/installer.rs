@@ -104,8 +104,22 @@ pub fn install_package(
         version,
     };
     Ok(match index.insert(discovered.clone()) {
-        Some(duplicate) => InstallOutcome::AlreadyInstalled(duplicate),
-        None => InstallOutcome::Installed(discovered),
+        Some(duplicate) => {
+            tracing::info!(
+                package = %discovered.name,
+                version = %discovered.version,
+                "package already installed"
+            );
+            InstallOutcome::AlreadyInstalled(duplicate)
+        }
+        None => {
+            tracing::info!(
+                package = %discovered.name,
+                version = %discovered.version,
+                "installed package"
+            );
+            InstallOutcome::Installed(discovered)
+        }
     })
 }
 
