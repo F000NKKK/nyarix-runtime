@@ -64,7 +64,8 @@ pub fn build_debug_dump(
     config: &RuntimeConfig,
     started_at: Instant,
 ) -> DebugDump {
-    let metrics_json = serde_json::from_str(&metrics.export_json()).unwrap_or(serde_json::Value::Null);
+    let metrics_json =
+        serde_json::from_str(&metrics.export_json()).unwrap_or(serde_json::Value::Null);
     DebugDump {
         graph: export_graph(graph, Some(metrics)),
         metrics: metrics_json,

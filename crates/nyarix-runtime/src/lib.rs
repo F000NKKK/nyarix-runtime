@@ -30,12 +30,17 @@
 //! module load results, graph depth) given whatever the caller already
 //! has in hand — see that module's scope notes on `active_flows` and
 //! `memory_usage_bytes`, not implemented, and on why this doesn't wire
-//! itself into `RuntimeHandle`'s startup yet (#103/#112). The rest
-//! (dependency resolver wiring into the graph) is still its own later
-//! milestone issue.
+//! itself into `RuntimeHandle`'s startup yet (#103/#112).
+//! [`debug_dump::build_debug_dump`] (#88) assembles a full state
+//! snapshot (graph, metrics, config, uptime) the same way; its
+//! `SIGUSR1` trigger is real (Unix-only), the other two triggers
+//! (API call, crash) are deferred — see that module's scope note. The
+//! rest (dependency resolver wiring into the graph) is still its own
+//! later milestone issue.
 
 pub mod capability_enforcement;
 pub mod cpu_pool;
+pub mod debug_dump;
 pub mod execution_loop;
 pub mod graph_builder;
 pub mod init;
@@ -49,6 +54,7 @@ pub mod version_switch;
 
 pub use capability_enforcement::{EnforcementError, enforce_and_instantiate};
 pub use cpu_pool::CpuPool;
+pub use debug_dump::{DebugDump, build_debug_dump};
 pub use execution_loop::{
     DEFAULT_SHUTDOWN_TIMEOUT, ExecutionLoopError, initialize_all_nodes, run, run_with_timeout,
     shutdown_all_nodes,
