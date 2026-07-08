@@ -2,7 +2,9 @@
 //! building a dependency graph over what was found (#53), picking a
 //! concrete version per dependency while honoring `optional = true`
 //! (#54/#56), categorizing conflicts with human-readable messages
-//! (#55), and instantiating an already-loaded module (#57).
+//! (#55), instantiating an already-loaded module (#57), and running the
+//! full validation pipeline over a candidate package ([`validation`],
+//! #64).
 //!
 //! **Scope note:** [`instantiation::instantiate`] takes a `Box<dyn
 //! Module>` the caller already produced — actually loading a module's
@@ -12,11 +14,13 @@
 pub mod conflict;
 pub mod dependency_graph;
 pub mod instantiation;
+pub mod validation;
 pub mod version_resolver;
 
 pub use conflict::{Conflict, detect_conflicts};
 pub use dependency_graph::{DependencyCycle, DependencyGraph};
 pub use instantiation::{InstantiationError, ModuleRegistry, instantiate};
+pub use validation::{ValidationReport, validate_package};
 pub use version_resolver::{Requirement, ResolvedVersions, VersionConflict, resolve_versions};
 
 use std::collections::HashMap;
