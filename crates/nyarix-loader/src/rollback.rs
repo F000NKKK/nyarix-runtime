@@ -100,7 +100,9 @@ pub enum RollbackError {
     /// would just reintroduce whatever conflict it originally had, or a
     /// new one introduced since (e.g. a sibling package installed after
     /// it that it now conflicts with).
-    #[error("previous version {version} of {name} is not compatible with the current environment: {conflicts:?}")]
+    #[error(
+        "previous version {version} of {name} is not compatible with the current environment: {conflicts:?}"
+    )]
     Incompatible {
         /// The package's name.
         name: String,
@@ -152,12 +154,12 @@ impl RollbackHistory {
         let path = Self::file_path(&root);
 
         let entries = match fs::read_to_string(&path) {
-            Ok(contents) => serde_json::from_str(&contents).map_err(|source| {
-                RollbackError::InvalidHistory {
+            Ok(contents) => {
+                serde_json::from_str(&contents).map_err(|source| RollbackError::InvalidHistory {
                     path: path.clone(),
                     source,
-                }
-            })?,
+                })?
+            }
             Err(source) if source.kind() == io::ErrorKind::NotFound => Vec::new(),
             Err(source) => return Err(io_error(&path, source)),
         };
@@ -363,10 +365,7 @@ description = "test"
 
     fn install(root: &Path, name: &str, version: &str) {
         let data = PackageBuilder::new()
-            .add_file(
-                "manifest.toml",
-                manifest_toml(name, version).into_bytes(),
-            )
+            .add_file("manifest.toml", manifest_toml(name, version).into_bytes())
             .build()
             .unwrap();
         let mut index = ModuleIndex::default();
@@ -509,8 +508,7 @@ description = "test"
         let incompatible = PackageBuilder::new()
             .add_file(
                 "manifest.toml",
-                format!(
-                    r#"
+                r#"
 [package]
 name = "a"
 version = "0.1.0"
@@ -522,8 +520,8 @@ description = "test"
 [platforms]
 supported = ["ios", "android"]
 "#
-                )
-                .into_bytes(),
+                .as_bytes()
+                .to_vec(),
             )
             .build()
             .unwrap();
