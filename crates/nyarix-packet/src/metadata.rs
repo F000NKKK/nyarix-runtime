@@ -205,6 +205,17 @@ pub enum PrivacyPolicy {
     Minimal,
 }
 
+/// One entry in [`Metadata::trace_summary`] (#87): a visited node,
+/// paired with when it was visited if detailed timing was captured.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TraceHop {
+    /// The node visited.
+    pub node: NodeId,
+    /// Milliseconds since packet creation when this hop was recorded,
+    /// if [`Metadata::trace_detailed`] was set.
+    pub elapsed_ms: Option<u64>,
+}
+
 impl Metadata {
     /// Create default metadata with a new session, flow, and stream ID.
     #[must_use]

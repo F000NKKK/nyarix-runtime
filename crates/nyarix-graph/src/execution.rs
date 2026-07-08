@@ -283,6 +283,7 @@ fn execute_sequential_inner(
             })?;
 
         check_payload_limit(node, &packet)?;
+        packet.metadata_mut().record_hop(current);
         let started = Instant::now();
         let outcome = node.process(packet);
         let elapsed = started.elapsed();
