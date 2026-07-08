@@ -564,6 +564,7 @@ dependencies = [
 name = "nyarix-runtime"
 version = "0.3.0"
 dependencies = [
+ "chrono",
  "nyarix-config",
  "nyarix-core",
  "nyarix-error",

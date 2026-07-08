@@ -23,5 +23,8 @@ toml.workspace = true
 rayon.workspace = true
 semver.workspace = true
 
+[dev-dependencies]
+chrono.workspace = true
+
 [lints]
 workspace = true

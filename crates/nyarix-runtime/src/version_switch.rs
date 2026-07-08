@@ -118,11 +118,7 @@ mod tests {
     impl StubModule {
         fn new(migratable: bool) -> Self {
             Self {
-                metadata: ModuleMetadata::new(
-                    "a",
-                    semver::Version::new(0, 1, 0),
-                    ModuleType::Flow,
-                ),
+                metadata: ModuleMetadata::new("a", Version::new(0, 1, 0), ModuleType::Flow),
                 migratable,
                 migrate_calls: 0,
                 fail_migration: false,
@@ -154,7 +150,8 @@ mod tests {
         fn migrate(&mut self, _ctx: &RuntimeContext) -> Result<(), ModuleError> {
             self.migrate_calls += 1;
             if self.fail_migration {
-                return Err(ModuleError::InitializationFailed {
+                return Err(ModuleError::InitFailed {
+                    name: self.metadata.name.clone(),
                     reason: "simulated migration failure".to_string(),
                 });
             }
@@ -197,14 +194,8 @@ mod tests {
         let mut module = StubModule::new(true);
         let ctx = RuntimeContext::empty();
 
-        let err = switch_version(
-            "a",
-            &Version::new(0, 2, 0),
-            &cache,
-            &mut module,
-            &ctx,
-        )
-        .unwrap_err();
+        let err =
+            switch_version("a", &Version::new(0, 2, 0), &cache, &mut module, &ctx).unwrap_err();
 
         assert!(matches!(err, VersionSwitchError::NotCached { .. }));
         assert_eq!(module.migrate_calls, 0);
