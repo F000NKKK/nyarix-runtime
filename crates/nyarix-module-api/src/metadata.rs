@@ -41,8 +41,8 @@ pub enum ModuleType {
 
 /// Metadata describing a module.
 ///
-/// See the module-level docs for the two fields still missing relative to
-/// the full #20 spec.
+/// See the module-level docs for the one field still missing (`dependencies`)
+/// relative to the full #20 spec.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModuleMetadata {
     /// Module name, unique within its registry namespace.
@@ -102,6 +102,7 @@ impl ModuleMetadata {
             provided_tags: Vec::new(),
             platforms: Vec::new(),
             resource_limits: ResourceLimits::unbounded(),
+            sandbox_permissions: Vec::new(),
         }
     }
 
@@ -116,6 +117,17 @@ impl ModuleMetadata {
     #[must_use]
     pub fn with_provided_capabilities(mut self, capabilities: impl Into<Vec<Capability>>) -> Self {
         self.provided_capabilities = capabilities.into();
+        self
+    }
+
+    /// Set the fine-grained sandbox permissions (#93) this module
+    /// declares it needs.
+    #[must_use]
+    pub fn with_sandbox_permissions(
+        mut self,
+        permissions: impl Into<Vec<SandboxPermission>>,
+    ) -> Self {
+        self.sandbox_permissions = permissions.into();
         self
     }
 
