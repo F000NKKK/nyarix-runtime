@@ -53,10 +53,24 @@ pub trait Module: Send + Sync {
     /// Migrate to a new version/configuration without leaving the graph.
     /// Default is a no-op for modules that don't support live migration.
     ///
+    /// Only called when [`Self::supports_migration`] returns `true` — a
+    /// caller doing a live version switch (#68) falls back to a full
+    /// graph restart otherwise, since this default no-op would
+    /// otherwise look indistinguishable from "migrated successfully".
+    ///
     /// # Errors
     /// Returns an error if migration was attempted but failed.
     fn migrate(&mut self, _ctx: &RuntimeContext) -> Result<()> {
         Ok(())
+    }
+
+    /// Whether this module implements real live migration in
+    /// [`Self::migrate`] (#68's "hot swap"), as opposed to relying on
+    /// the default no-op. Defaults to `false`; a module overrides this
+    /// to `true` only once its `migrate` genuinely re-reads
+    /// configuration/state for a new version in place.
+    fn supports_migration(&self) -> bool {
+        false
     }
 }
 
@@ -175,5 +189,11 @@ mod tests {
         let mut module = PassthroughModule::new();
         let ctx = RuntimeContext::empty();
         assert!(module.migrate(&ctx).is_ok());
+    }
+
+    #[test]
+    fn default_supports_migration_is_false() {
+        let module = PassthroughModule::new();
+        assert!(!module.supports_migration());
     }
 }
