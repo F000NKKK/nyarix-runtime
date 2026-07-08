@@ -425,7 +425,17 @@ impl RuntimeContext {
     /// with [`Self::empty`] or [`Self::new`] rather than
     /// [`Self::with_event_bus`]), the event is only traced so it isn't
     /// silently swallowed.
+    ///
+    /// Also increments `event_rate` (#83's Runtime-level metric) on
+    /// whatever [`crate::metrics::MetricRegistry`] this context's
+    /// [`MetricsHandle`] has attached (a no-op if none does), under a
+    /// fixed `"runtime"` scope — this counts *every* event published
+    /// through *any* context sharing that registry, not one context's
+    /// own rate specifically.
     pub fn emit_event(&self, event: Event) {
+        if let Some(counter) = self.metrics.counter("runtime", "event_rate") {
+            counter.increment(1);
+        }
         match &self.event_bus {
             Some(bus) => bus.publish(event),
             None => tracing::debug!(?event, "event emitted (no EventBus attached)"),
@@ -837,6 +847,19 @@ mod tests {
             .increment(1);
 
         assert_eq!(registry.counter("quic", "packets_sent").value(), 1);
+    }
+
+    #[test]
+    fn emit_event_increments_event_rate_when_a_registry_is_attached() {
+        use crate::metrics::MetricRegistry;
+
+        let registry = Arc::new(MetricRegistry::new());
+        let ctx = RuntimeContext::empty().with_metrics_registry(Arc::clone(&registry));
+
+        ctx.emit_event(Event::new("test_event"));
+        ctx.emit_event(Event::new("test_event"));
+
+        assert_eq!(registry.counter("runtime", "event_rate").value(), 2);
     }
 
     #[test]
