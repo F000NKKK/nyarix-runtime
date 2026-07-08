@@ -47,6 +47,57 @@ const PROCESS_DURATION_BUCKETS_US: [f64; 8] = [
     1_000_000.0,
 ];
 
+/// Histogram bucket bounds for `packet_latency_us` (#81) — same range
+/// as [`PROCESS_DURATION_BUCKETS_US`], but this measures the whole
+/// entry-to-exit traversal, not one node's `process` call.
+const PACKET_LATENCY_BUCKETS_US: [f64; 8] = PROCESS_DURATION_BUCKETS_US;
+
+/// The scope #81's flow-level metrics (`packets_total`, `bytes_total`,
+/// `packet_latency_us`, `packets_dropped`) are recorded under — these
+/// describe the graph as a whole, not any one node/module, so there's
+/// no module name to key them by the way #82's per-node metrics are.
+const FLOW_METRICS_SCOPE: &str = "flow";
+
+/// Record #81's "Сбор на входе графа": one packet entering, `len`
+/// bytes.
+fn record_flow_entry(metrics: Option<&MetricRegistry>, len: usize) {
+    let Some(metrics) = metrics else {
+        return;
+    };
+    metrics
+        .counter(FLOW_METRICS_SCOPE, "packets_total")
+        .increment(1);
+    metrics
+        .counter(FLOW_METRICS_SCOPE, "bytes_total")
+        .increment(u64::try_from(len).unwrap_or(u64::MAX));
+}
+
+/// Record #81's "Сбор на выходе графа": either the packet reached an
+/// exit point after `started` (recorded in `packet_latency_us`), or it
+/// didn't — absorbed along the way (#19), or the traversal errored —
+/// counted as `packets_dropped` either way, since from the flow's
+/// perspective neither one produced an output packet.
+fn record_flow_exit(metrics: Option<&MetricRegistry>, started: Instant, reached_exit: bool) {
+    let Some(metrics) = metrics else {
+        return;
+    };
+    if reached_exit {
+        #[allow(clippy::cast_precision_loss)]
+        let elapsed_us = started.elapsed().as_micros() as f64;
+        metrics
+            .histogram(
+                FLOW_METRICS_SCOPE,
+                "packet_latency_us",
+                PACKET_LATENCY_BUCKETS_US.to_vec(),
+            )
+            .observe(elapsed_us);
+    } else {
+        metrics
+            .counter(FLOW_METRICS_SCOPE, "packets_dropped")
+            .increment(1);
+    }
+}
+
 /// Error produced while executing a packet through the graph.
 #[derive(Debug, Error)]
 pub enum ExecutionError {
@@ -184,8 +235,27 @@ fn record_node_metrics(
 /// Returns [`ExecutionError::Module`] if a node's `process` call fails.
 ///
 /// `metrics`, if attached, records #82's per-node metrics for every
-/// hop — see [`record_node_metrics`].
+/// hop (see [`record_node_metrics`]) and #81's flow-level metrics once
+/// for the whole traversal (see [`record_flow_entry`]/
+/// [`record_flow_exit`]) — `packets_total`/`bytes_total` at entry,
+/// `packet_latency_us`/`packets_dropped` at exit (a dropped packet is
+/// one absorbed along the way, #19, or one whose traversal errored;
+/// either way it never reached an exit point, which is the flow-level
+/// distinction this metric cares about).
 pub fn execute_sequential(
+    graph: &mut FlowGraph,
+    entry: NodeId,
+    packet: Packet,
+    metrics: Option<&MetricRegistry>,
+) -> Result<Option<Packet>, ExecutionError> {
+    record_flow_entry(metrics, packet.len());
+    let started = Instant::now();
+    let result = execute_sequential_inner(graph, entry, packet, metrics);
+    record_flow_exit(metrics, started, matches!(result, Ok(Some(_))));
+    result
+}
+
+fn execute_sequential_inner(
     graph: &mut FlowGraph,
     entry: NodeId,
     mut packet: Packet,
@@ -307,7 +377,32 @@ async fn walk_node(
 /// # Errors
 /// Same conditions as [`execute_sequential`], plus: if a spawned branch
 /// task panics, that's reported as [`GraphError::BuildFailed`].
+///
+/// `metrics`, same as [`execute_sequential`], records #81's flow-level
+/// metrics once for the whole call — `reached_exit` for
+/// [`record_flow_exit`]'s purposes is "at least one branch produced a
+/// packet"; fan-out means some branches can be absorbed while others
+/// exit, but there's no per-branch "dropped" accounting here (that
+/// would need [`nyarix_module_api::NodeType::Aggregator`] semantics
+/// this function's own docs already say aren't decided yet).
 pub async fn execute_parallel(
+    graph: Arc<tokio::sync::Mutex<FlowGraph>>,
+    entry: NodeId,
+    packet: Packet,
+    max_concurrent_branches: usize,
+    metrics: Option<Arc<MetricRegistry>>,
+) -> Result<Vec<Packet>, ExecutionError> {
+    record_flow_entry(metrics.as_deref(), packet.len());
+    let started = Instant::now();
+    let result =
+        execute_parallel_inner(graph, entry, packet, max_concurrent_branches, metrics.clone())
+            .await;
+    let reached_exit = matches!(&result, Ok(results) if !results.is_empty());
+    record_flow_exit(metrics.as_deref(), started, reached_exit);
+    result
+}
+
+async fn execute_parallel_inner(
     graph: Arc<tokio::sync::Mutex<FlowGraph>>,
     entry: NodeId,
     packet: Packet,
