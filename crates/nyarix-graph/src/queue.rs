@@ -249,7 +249,7 @@ mod tests {
         assert_eq!(rx.len(), 3);
         assert!(!rx.is_empty());
 
-        rx.try_recv_prioritized();
+        let _ = rx.try_recv_prioritized();
         assert_eq!(rx.len(), 2);
     }
 
