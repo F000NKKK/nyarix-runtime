@@ -277,6 +277,16 @@ impl MetricsHandle {
             .as_ref()
             .map(|registry| registry.histogram(module, name, bounds))
     }
+
+    /// The underlying [`MetricRegistry`], if one is attached — for
+    /// callers (e.g. `nyarix_graph::execute_sequential`/
+    /// `execute_parallel`, #82) that record metrics keyed by an
+    /// arbitrary module name rather than a single one this handle is
+    /// scoped to.
+    #[must_use]
+    pub fn registry(&self) -> Option<&MetricRegistry> {
+        self.registry.as_deref()
+    }
 }
 
 #[cfg(test)]

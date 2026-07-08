@@ -20,15 +20,25 @@
 //! gap #76/#116 hit for memory. Tracked separately (#117) rather than
 //! guessed at here.
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use nyarix_core::NodeId;
 use nyarix_error::{GraphError, ModuleError};
+use nyarix_module_api::MetricRegistry;
 use nyarix_packet::Packet;
 use thiserror::Error;
 
 use crate::graph::FlowGraph;
 use crate::node::GraphNode;
+
+/// Histogram bucket bounds for `process_duration_us` (#82), in
+/// microseconds — a spread wide enough for both packet-processing
+/// (microseconds to low milliseconds) and the occasional slow node
+/// hitting its CPU budget (#77, up to whole seconds).
+const PROCESS_DURATION_BUCKETS_US: [f64; 8] = [
+    50.0, 100.0, 500.0, 1_000.0, 5_000.0, 10_000.0, 100_000.0, 1_000_000.0,
+];
 
 /// Error produced while executing a packet through the graph.
 #[derive(Debug, Error)]
@@ -66,10 +76,9 @@ fn check_payload_limit(node: &GraphNode, packet: &Packet) -> Result<(), Executio
 
 /// Record how long a `Module::process` call actually took (#77's
 /// "Статистика: сколько CPU потребил модуль" — logged via `tracing`
-/// since the real metric registry, #82, doesn't exist yet; once it
-/// does, this is where a per-node duration metric should be recorded
-/// instead of/alongside the log line), and reject the node's result if
-/// it exceeded [`nyarix_module_api::ResourceLimits::max_processing_time`]
+/// regardless of whether a [`MetricRegistry`] is attached, so this is
+/// visible even without one), and reject the node's result if it
+/// exceeded [`nyarix_module_api::ResourceLimits::max_processing_time`]
 /// (#77's "CPU time budget на модуль").
 ///
 /// This can only detect an overrun *after* `process` already returned —
@@ -103,6 +112,53 @@ fn record_and_check_processing_time(
     Ok(())
 }
 
+/// Record #82's per-node metrics for one `Module::process` call — a
+/// no-op if `metrics` is `None` (same "attached or not" convention as
+/// [`nyarix_module_api::context::RuntimeContext`]'s own optional
+/// [`MetricRegistry`]).
+///
+/// - `process_calls_total` (counter) — incremented once per call.
+/// - `process_duration_us` (histogram) — `elapsed` in microseconds.
+/// - `queue_depth` (gauge) — `node`'s current
+///   [`nyarix_module_api::Node::input_queue_depth`]. **Caveat**: this
+///   reports whatever the module itself returns from that method —
+///   until `NodeQueue` (#36) is actually wired into execution (#97),
+///   there's no live queue behind it to measure, so a module that
+///   hasn't implemented it meaningfully just reports whatever constant
+///   it chose (`0` in every stub/test module in this codebase so far).
+/// - `errors_total` (counter) — incremented when `succeeded` is `false`.
+///
+/// "Retries" (`retries_total`, #82's remaining bullet) isn't recorded
+/// here — nothing in this execution engine retries a failed
+/// `process()` call; a failure is logged and the packet is dropped
+/// (see [`execute_sequential`]/[`execute_parallel`]'s docs). There's no
+/// retry count to observe until a retry mechanism exists.
+fn record_node_metrics(
+    metrics: Option<&MetricRegistry>,
+    node: &GraphNode,
+    elapsed: Duration,
+    succeeded: bool,
+) {
+    let Some(metrics) = metrics else {
+        return;
+    };
+    let name = &node.module().metadata().name;
+
+    metrics.counter(name, "process_calls_total").increment(1);
+    #[allow(clippy::cast_precision_loss)]
+    metrics
+        .histogram(
+            name,
+            "process_duration_us",
+            PROCESS_DURATION_BUCKETS_US.to_vec(),
+        )
+        .observe(elapsed.as_micros() as f64);
+    metrics.gauge(name, "queue_depth").set(i64::try_from(node.module().input_queue_depth()).unwrap_or(i64::MAX));
+    if !succeeded {
+        metrics.counter(name, "errors_total").increment(1);
+    }
+}
+
 /// Run a packet through the graph starting at `entry`, following
 /// [`FlowGraph`] adjacency one hop at a time.
 ///
@@ -117,10 +173,14 @@ fn record_and_check_processing_time(
 /// and that node isn't an exit point — this indicates the graph wasn't
 /// validated (see [`FlowGraph::validate`]) before running it.
 /// Returns [`ExecutionError::Module`] if a node's `process` call fails.
+///
+/// `metrics`, if attached, records #82's per-node metrics for every
+/// hop — see [`record_node_metrics`].
 pub fn execute_sequential(
     graph: &mut FlowGraph,
     entry: NodeId,
     mut packet: Packet,
+    metrics: Option<&MetricRegistry>,
 ) -> Result<Option<Packet>, ExecutionError> {
     if !graph.entry_points().contains(&entry) {
         return Err(GraphError::MissingNode {
@@ -140,7 +200,9 @@ pub fn execute_sequential(
         check_payload_limit(node, &packet)?;
         let started = Instant::now();
         let outcome = node.process(packet);
-        record_and_check_processing_time(node, started.elapsed())?;
+        let elapsed = started.elapsed();
+        record_node_metrics(metrics, node, elapsed, outcome.is_ok());
+        record_and_check_processing_time(node, elapsed)?;
         packet = match outcome? {
             Some(packet) => packet,
             None => return Ok(None),
@@ -176,9 +238,10 @@ enum WalkStep {
 }
 
 async fn walk_node(
-    graph: &std::sync::Arc<tokio::sync::Mutex<FlowGraph>>,
+    graph: &Arc<tokio::sync::Mutex<FlowGraph>>,
     current: NodeId,
     packet: Packet,
+    metrics: Option<&MetricRegistry>,
 ) -> Result<WalkStep, ExecutionError> {
     let mut guard = graph.lock().await;
     let node = guard
@@ -190,7 +253,9 @@ async fn walk_node(
     check_payload_limit(node, &packet)?;
     let started = Instant::now();
     let outcome = node.process(packet);
-    record_and_check_processing_time(node, started.elapsed())?;
+    let elapsed = started.elapsed();
+    record_node_metrics(metrics, node, elapsed, outcome.is_ok());
+    record_and_check_processing_time(node, elapsed)?;
     let processed = match outcome? {
         Some(packet) => packet,
         None => return Ok(WalkStep::Absorbed),
@@ -234,10 +299,11 @@ async fn walk_node(
 /// Same conditions as [`execute_sequential`], plus: if a spawned branch
 /// task panics, that's reported as [`GraphError::BuildFailed`].
 pub async fn execute_parallel(
-    graph: std::sync::Arc<tokio::sync::Mutex<FlowGraph>>,
+    graph: Arc<tokio::sync::Mutex<FlowGraph>>,
     entry: NodeId,
     packet: Packet,
     max_concurrent_branches: usize,
+    metrics: Option<Arc<MetricRegistry>>,
 ) -> Result<Vec<Packet>, ExecutionError> {
     {
         let guard = graph.lock().await;
@@ -249,20 +315,20 @@ pub async fn execute_parallel(
         }
     }
 
-    let semaphore =
-        std::sync::Arc::new(tokio::sync::Semaphore::new(max_concurrent_branches.max(1)));
-    run_branch(graph, entry, packet, semaphore).await
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(max_concurrent_branches.max(1)));
+    run_branch(graph, entry, packet, semaphore, metrics).await
 }
 
 fn run_branch(
-    graph: std::sync::Arc<tokio::sync::Mutex<FlowGraph>>,
+    graph: Arc<tokio::sync::Mutex<FlowGraph>>,
     mut current: NodeId,
     mut packet: Packet,
-    semaphore: std::sync::Arc<tokio::sync::Semaphore>,
+    semaphore: Arc<tokio::sync::Semaphore>,
+    metrics: Option<Arc<MetricRegistry>>,
 ) -> std::pin::Pin<Box<dyn Future<Output = Result<Vec<Packet>, ExecutionError>> + Send>> {
     Box::pin(async move {
         loop {
-            match walk_node(&graph, current, packet).await? {
+            match walk_node(&graph, current, packet, metrics.as_deref()).await? {
                 WalkStep::Absorbed => return Ok(Vec::new()),
                 WalkStep::Exited(packet) => return Ok(vec![packet]),
                 WalkStep::Continue(next_packet, edges) => {
@@ -290,15 +356,16 @@ fn run_branch(
 
                     let mut set = tokio::task::JoinSet::new();
                     for target in parallel_targets {
-                        let graph = std::sync::Arc::clone(&graph);
-                        let semaphore = std::sync::Arc::clone(&semaphore);
+                        let graph = Arc::clone(&graph);
+                        let semaphore = Arc::clone(&semaphore);
+                        let metrics = metrics.clone();
                         let branch_packet = next_packet.clone();
                         set.spawn(async move {
-                            let _permit = std::sync::Arc::clone(&semaphore)
+                            let _permit = Arc::clone(&semaphore)
                                 .acquire_owned()
                                 .await
                                 .expect("semaphore is never closed");
-                            run_branch(graph, target, branch_packet, semaphore).await
+                            run_branch(graph, target, branch_packet, semaphore, metrics).await
                         });
                     }
 
