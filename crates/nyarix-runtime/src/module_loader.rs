@@ -87,13 +87,20 @@ pub fn load_modules(
         for discovered in scan.index.get(name) {
             match fs::read(&discovered.path) {
                 Ok(data) => candidates.push((discovered.path.clone(), data)),
-                Err(source) => report.errors.push(ScanError {
-                    path: discovered.path.clone(),
-                    error: PackageError::Io {
-                        path: discovered.path.display().to_string(),
-                        source,
-                    },
-                }),
+                Err(source) => {
+                    tracing::warn!(
+                        path = %discovered.path.display(),
+                        error = %source,
+                        "skipping module: failed to read package file"
+                    );
+                    report.errors.push(ScanError {
+                        path: discovered.path.clone(),
+                        error: PackageError::Io {
+                            path: discovered.path.display().to_string(),
+                            source,
+                        },
+                    });
+                }
             }
         }
     }
