@@ -113,6 +113,17 @@ impl ModuleMetadata {
         self
     }
 
+    /// [`Self::required_capabilities`] as a [`CapabilityMask`] (#70/#91)
+    /// — the form the Runtime's grant/enforcement checks
+    /// (`CapabilityMask::satisfies`/[`crate::capability::CapabilityGrant`])
+    /// actually operate on, computed here so callers don't each redo
+    /// `CapabilityMask::from_capabilities(&metadata.required_capabilities)`
+    /// by hand.
+    #[must_use]
+    pub fn required_capabilities_mask(&self) -> crate::capability::CapabilityMask {
+        crate::capability::CapabilityMask::from_capabilities(&self.required_capabilities)
+    }
+
     /// Set the feature/service tags this module advertises to other
     /// modules.
     #[must_use]
