@@ -218,7 +218,7 @@ async fn process_one(
         // contains one during `initialize` — logged and treated as this
         // packet failing, not as the whole loop unwinding.
         crate::sandbox::catch_panic(move || {
-            nyarix_graph::execute_sequential(&mut guard, entry, packet, metrics)
+            nyarix_graph::execute_sequential(&mut guard, entry, packet, metrics, None)
         })
     };
 

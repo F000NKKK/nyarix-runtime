@@ -248,7 +248,12 @@ pub fn execute_sequential(
     entry: NodeId,
     packet: Packet,
     metrics: Option<&MetricRegistry>,
+    throughput: Option<&mut ThroughputTracker>,
 ) -> Result<Option<Packet>, ExecutionError> {
+    if let Some(ref mut tracker) = throughput {
+        let len = u64::try_from(packet.len()).unwrap_or(u64::MAX);
+        tracker.record(packet.metadata().flow_id, len);
+    }
     record_flow_entry(metrics, packet.len());
     let started = Instant::now();
     let result = execute_sequential_inner(graph, entry, packet, metrics);
@@ -635,7 +640,7 @@ mod tests {
         let pkt = Packet::new(b"hello".as_slice());
         let id = pkt.id();
 
-        let result = execute_sequential(&mut graph, a_id, pkt, None).unwrap();
+        let result = execute_sequential(&mut graph, a_id, pkt, None, None).unwrap();
         assert_eq!(result.unwrap().id(), id);
     }
 
@@ -656,7 +661,7 @@ mod tests {
         graph.connect(bc).unwrap();
 
         let result =
-            execute_sequential(&mut graph, a_id, Packet::new(b"data".as_slice()), None).unwrap();
+            execute_sequential(&mut graph, a_id, Packet::new(b"data".as_slice()), None, None).unwrap();
         assert!(result.is_none());
     }
 
@@ -673,7 +678,7 @@ mod tests {
         graph.connect(ab).unwrap();
         // `b` has no outgoing edge and isn't an exit point.
 
-        let result = execute_sequential(&mut graph, a_id, Packet::new(b"data".as_slice()), None);
+        let result = execute_sequential(&mut graph, a_id, Packet::new(b"data".as_slice()), None, None);
         assert!(matches!(
             result,
             Err(ExecutionError::Graph(GraphError::BuildFailed { .. }))
@@ -687,7 +692,7 @@ mod tests {
         let a_id = a.id();
         graph.add_node(a);
 
-        let result = execute_sequential(&mut graph, a_id, Packet::new(b"data".as_slice()), None);
+        let result = execute_sequential(&mut graph, a_id, Packet::new(b"data".as_slice()), None, None);
         assert!(matches!(
             result,
             Err(ExecutionError::Graph(GraphError::MissingNode { .. }))
@@ -710,6 +715,7 @@ mod tests {
             &mut graph,
             a_id,
             Packet::new(b"way too big".as_slice()),
+            None,
             None,
         );
 
@@ -735,7 +741,7 @@ mod tests {
 
         let pkt = Packet::new(b"ok".as_slice());
         let id = pkt.id();
-        let result = execute_sequential(&mut graph, a_id, pkt, None).unwrap();
+        let result = execute_sequential(&mut graph, a_id, pkt, None, None).unwrap();
         assert_eq!(result.unwrap().id(), id);
     }
 
@@ -752,7 +758,7 @@ mod tests {
         graph.mark_exit_point(a_id);
         graph.add_node(a);
 
-        let result = execute_sequential(&mut graph, a_id, Packet::new(b"data".as_slice()), None);
+        let result = execute_sequential(&mut graph, a_id, Packet::new(b"data".as_slice()), None, None);
 
         let Err(ExecutionError::Module(ModuleError::QuotaExceeded { name, resource })) = result
         else {
@@ -777,7 +783,7 @@ mod tests {
 
         let pkt = Packet::new(b"data".as_slice());
         let id = pkt.id();
-        let result = execute_sequential(&mut graph, a_id, pkt, None).unwrap();
+        let result = execute_sequential(&mut graph, a_id, pkt, None, None).unwrap();
         assert_eq!(result.unwrap().id(), id);
     }
 
@@ -795,6 +801,7 @@ mod tests {
             a_id,
             Packet::new(b"data".as_slice()),
             Some(&metrics),
+            None,
         )
         .unwrap();
         assert!(result.is_some());
@@ -875,6 +882,7 @@ mod tests {
             a_id,
             Packet::new(b"data".as_slice()),
             Some(&metrics),
+            None,
         );
         assert!(result.is_err());
 
@@ -892,7 +900,7 @@ mod tests {
 
         let metrics = MetricRegistry::new();
         let pkt = Packet::new(b"hello".as_slice());
-        let result = execute_sequential(&mut graph, a_id, pkt, Some(&metrics)).unwrap();
+        let result = execute_sequential(&mut graph, a_id, pkt, Some(&metrics), None).unwrap();
         assert!(result.is_some());
 
         assert_eq!(metrics.counter("flow", "packets_total").value(), 1);
@@ -921,6 +929,7 @@ mod tests {
             a_id,
             Packet::new(b"data".as_slice()),
             Some(&metrics),
+            None,
         )
         .unwrap();
         assert!(result.is_none());
@@ -955,6 +964,7 @@ mod tests {
             a_id,
             Packet::new(b"data".as_slice()),
             Some(&metrics),
+            None,
         );
         assert!(result.is_err());
 
