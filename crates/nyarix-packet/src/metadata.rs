@@ -60,11 +60,12 @@ pub struct Metadata {
     // ── Lifecycle / Tracing ──────────────────────────
     /// Wall-clock instant when this packet was created (#84).
     ///
-    /// Skipped during serialization — `Instant` is
-    /// runtime-local and has no stable cross-process
-    /// meaning, but nodes within the same runtime can
-    /// inspect it to gauge packet age.
-    #[serde(skip, default = "Instant::now")]
+    /// Serialized as a relative millisecond offset (how long
+    /// ago the packet was created) — same convention as
+    /// [`deadline`](Self::deadline) but in reverse, so
+    /// encode/decode round-trips within the same process are
+    /// approximately preserved.
+    #[serde(with = "created_at_millis")]
     pub created_at: Instant,
     /// Time-to-live in graph hops.
     pub ttl: u8,
@@ -80,6 +81,35 @@ pub struct Metadata {
     pub privacy_policy: PrivacyPolicy,
     /// Capability mask of the creator.
     pub capability_mask: u64,
+}
+
+/// Serde helper: encodes `Instant` as "milliseconds ago" (#84).
+///
+/// On serialize, stores how long ago `created_at` was; on deserialize,
+/// reconstructs `Instant::now() - ms_ago` — approximate within the same
+/// process, but exact equality is not guaranteed across an encode/decode
+/// boundary (the same caveat as [`deadline_millis`]).
+mod created_at_millis {
+    use std::time::{Duration, Instant};
+
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub(super) fn serialize<S: Serializer>(
+        value: &Instant,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        let now = Instant::now();
+        let ms_ago = u64::try_from(now.saturating_duration_since(*value).as_millis())
+            .unwrap_or(u64::MAX);
+        ms_ago.serialize(serializer)
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Instant, D::Error> {
+        let ms_ago = u64::deserialize(deserializer)?;
+        Ok(Instant::now() - Duration::from_millis(ms_ago))
+    }
 }
 
 /// Serde helper: encodes `Option<Instant>` as a relative millisecond offset.
