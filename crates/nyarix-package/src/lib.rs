@@ -9,17 +9,19 @@
 //!
 //! **Scope note:** this crate defines the format's *structural contract*
 //! ([`validate_layout`]), parses `manifest.toml` ([`manifest::PackageManifest`],
-//! #59), and packs/unpacks the archive itself ([`archive::PackageBuilder`]/
-//! [`archive::PackageReader`], #60). It deliberately does **not**
-//! implement Ed25519 signing/verification (#61/#62) or trust levels
-//! (#63) — those build on top of what's here, once each is its own
-//! issue's turn.
+//! #59), packs/unpacks the archive itself ([`archive::PackageBuilder`]/
+//! [`archive::PackageReader`], #60), and signs it with Ed25519
+//! ([`signing`], #61). It deliberately does **not** implement automatic
+//! signature verification during loading, or trust levels for which
+//! public keys to accept (#62/#63) — those build on top of what's here.
 
 pub mod archive;
 pub mod manifest;
+pub mod signing;
 
 pub use archive::{PackageBuilder, PackageReader};
 pub use manifest::{Capabilities, PackageInfo, PackageManifest, Platforms};
+pub use signing::{Signature, SignatureVerificationFailed, SigningKey, VerifyingKey};
 
 use nyarix_error::PackageError;
 

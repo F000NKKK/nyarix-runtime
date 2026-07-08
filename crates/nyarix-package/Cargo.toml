@@ -15,7 +15,7 @@ toml.workspace = true
 tar.workspace = true
 zstd.workspace = true
 ed25519-dalek = { workspace = true, features = ["rand_core"] }
-rand_core = { workspace = true, features = ["getrandom"] }
+rand_core = { workspace = true }
 
 [lints]
 workspace = true
