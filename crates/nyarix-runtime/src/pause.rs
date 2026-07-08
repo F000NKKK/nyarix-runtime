@@ -135,36 +135,36 @@ mod tests {
 
     #[tokio::test]
     async fn pause_then_resume_unblocks_a_waiter() {
-        let (handle, mut watcher) = GraphPauseHandle::new();
+        let (handle, watcher) = GraphPauseHandle::new();
         handle.pause();
         assert!(watcher.is_paused());
 
-        let mut waiter = watcher.clone();
-        let waited = tokio::spawn(async move {
-            waiter.wait_until_resumed().await;
+        let mut background = watcher.clone();
+        let join_handle = tokio::spawn(async move {
+            background.wait_until_resumed().await;
         });
 
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-        assert!(!waited.is_finished());
+        assert!(!join_handle.is_finished());
 
         handle.resume();
-        waited.await.unwrap();
+        join_handle.await.unwrap();
         assert!(!watcher.is_paused());
     }
 
     #[tokio::test]
     async fn wait_until_paused_resolves_as_soon_as_paused_is_signalled() {
-        let (handle, mut watcher) = GraphPauseHandle::new();
-        let mut waiter = watcher.clone();
-        let waited = tokio::spawn(async move {
-            waiter.wait_until_paused().await;
+        let (handle, watcher) = GraphPauseHandle::new();
+        let mut background = watcher.clone();
+        let join_handle = tokio::spawn(async move {
+            background.wait_until_paused().await;
         });
 
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-        assert!(!waited.is_finished());
+        assert!(!join_handle.is_finished());
 
         handle.pause();
-        waited.await.unwrap();
+        join_handle.await.unwrap();
         assert!(watcher.is_paused());
     }
 
@@ -176,9 +176,12 @@ mod tests {
 
         // Should return promptly (implicit resume) rather than hang
         // forever waiting for a resume that can no longer be sent.
-        tokio::time::timeout(std::time::Duration::from_secs(1), watcher.wait_until_resumed())
-            .await
-            .expect("wait_until_resumed must not hang once every handle is dropped");
+        tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            watcher.wait_until_resumed(),
+        )
+        .await
+        .expect("wait_until_resumed must not hang once every handle is dropped");
     }
 
     #[test]

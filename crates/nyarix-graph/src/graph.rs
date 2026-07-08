@@ -375,12 +375,12 @@ impl FlowGraph {
     /// -[Sequential]-> old_target`. If `after_id` has no outgoing edge yet,
     /// just connects `after_id -[Sequential]-> new_node`.
     ///
-    /// **Not implemented here** (needs a live execution engine, which
-    /// doesn't exist yet — M4): pausing packet flow / draining in-flight
-    /// packets during the splice. This only mutates the topology; running
-    /// [`Self::validate`] afterward and coordinating with the Scheduler is
-    /// the caller's job for now (see the issue comment for a tracked
-    /// follow-up).
+    /// **Coordinating with a live execution loop** (#98): this only
+    /// mutates the topology — it doesn't pause anything itself. If a
+    /// `nyarix-runtime` execution loop might be pulling packets through
+    /// this graph concurrently, the caller must pause it first (see
+    /// `nyarix_runtime::pause::GraphPauseHandle`) and resume it after;
+    /// running [`Self::validate`] afterward is also the caller's job.
     ///
     /// # Errors
     /// Returns [`GraphError::MissingNode`] if `after_id` doesn't exist, or
@@ -456,6 +456,10 @@ impl FlowGraph {
     /// node's own incident edges' types/conditions aren't carried over
     /// (there could be several, possibly conflicting).
     ///
+    /// Same live-execution-loop caveat as [`Self::insert_after`] (#98):
+    /// pause `nyarix-runtime`'s execution loop first if one might be
+    /// running against this graph concurrently.
+    ///
     /// # Errors
     /// Returns [`GraphError::MissingNode`] if `id` doesn't exist, or
     /// [`GraphError::BuildFailed`] for the many-to-many case described
@@ -525,9 +529,9 @@ impl FlowGraph {
     /// regardless of whether `migrate` succeeded; the outcome is reported
     /// so the caller can log/react to it.
     ///
-    /// **Not implemented here** (same M4 dependency as [`Self::insert_after`]):
-    /// draining in-flight packets / atomicity with respect to a *running*
-    /// graph. This only swaps the stored module.
+    /// Same live-execution-loop caveat as [`Self::insert_after`] (#98):
+    /// this only swaps the stored module — draining in-flight packets and
+    /// pausing/resuming around the swap is the caller's job.
     ///
     /// # Errors
     /// Returns [`GraphError::MissingNode`] if `id` doesn't exist.

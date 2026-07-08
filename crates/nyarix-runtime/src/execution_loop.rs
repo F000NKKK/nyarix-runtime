@@ -182,6 +182,7 @@ pub async fn run(
 /// errors encountered *during* the loop (main or draining) are logged
 /// via `tracing`, not propagated: one bad packet shouldn't take down the
 /// whole Runtime.
+#[allow(clippy::too_many_arguments)]
 pub async fn run_with_timeout(
     graph: Arc<Mutex<FlowGraph>>,
     entry: NodeId,
@@ -548,6 +549,54 @@ mod tests {
         // returning a packet) before proving the loop is still alive.
         tokio::time::sleep(Duration::from_millis(20)).await;
         assert!(sink_rx.try_recv().is_err());
+
+        shutdown.cancel();
+        loop_handle.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn pausing_stops_new_packets_and_resuming_lets_them_through() {
+        let initialized = Arc::new(AtomicUsize::new(0));
+        let shut_down = Arc::new(AtomicUsize::new(0));
+
+        let mut graph = FlowGraph::new();
+        let node = tracked_node("solo", NodeType::Source, &initialized, &shut_down);
+        graph.mark_exit_point(node.id());
+        let entry = node.id();
+        graph.add_node(node);
+
+        let graph = Arc::new(Mutex::new(graph));
+        let (source_tx, source_rx) = mpsc::channel(8);
+        let (sink_tx, mut sink_rx) = mpsc::channel(8);
+        let shutdown = CancellationToken::new();
+        let (pause_handle, pause_watcher) = crate::pause::GraphPauseHandle::new();
+
+        let loop_handle = tokio::spawn(run(
+            graph,
+            entry,
+            RuntimeContext::empty(),
+            source_rx,
+            sink_tx,
+            shutdown.clone(),
+            pause_watcher,
+        ));
+
+        pause_handle.pause();
+        // Give the loop a chance to notice the pause before sending.
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        let held = Packet::new(b"held".as_slice());
+        let held_id = held.id();
+        source_tx.send(held).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert!(
+            sink_rx.try_recv().is_err(),
+            "a paused loop must not process a packet sent while paused"
+        );
+
+        pause_handle.resume();
+        let received = sink_rx.recv().await.unwrap();
+        assert_eq!(received.id(), held_id);
 
         shutdown.cancel();
         loop_handle.await.unwrap().unwrap();
