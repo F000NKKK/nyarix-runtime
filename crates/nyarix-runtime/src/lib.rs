@@ -25,9 +25,14 @@
 //! into an ordinary [`nyarix_error::ModuleError::Crashed`] instead of
 //! letting it unwind into the Runtime — used by both
 //! `enforce_and_instantiate` (around `initialize`) and
-//! `execution_loop::process_one` (around `process`). The rest
-//! (dependency resolver wiring into the graph, metrics) are still their
-//! own later milestone issues.
+//! `execution_loop::process_one` (around `process`).
+//! [`runtime_metrics`] (#83) records Runtime-wide metrics (uptime,
+//! module load results, graph depth) given whatever the caller already
+//! has in hand — see that module's scope notes on `active_flows` and
+//! `memory_usage_bytes`, not implemented, and on why this doesn't wire
+//! itself into `RuntimeHandle`'s startup yet (#103/#112). The rest
+//! (dependency resolver wiring into the graph) is still its own later
+//! milestone issue.
 
 pub mod capability_enforcement;
 pub mod cpu_pool;
@@ -37,6 +42,7 @@ pub mod init;
 pub mod io_pool;
 pub mod module_loader;
 pub mod priority;
+pub mod runtime_metrics;
 pub mod sandbox;
 pub mod shutdown;
 pub mod version_switch;
@@ -54,6 +60,7 @@ pub use module_loader::{LoadedPackage, ModuleLoadReport, RejectedPackage, load_m
 pub use nyarix_graph::FlowGraph;
 pub use nyarix_module_api::{Event, EventBus, EventFilter, EventKind};
 pub use priority::{PriorityReceiver, PrioritySender, TaskPriority, priority_queue};
+pub use runtime_metrics::{record_graph_depth, record_module_load_report, record_uptime};
 pub use sandbox::{catch_module_panic, catch_panic};
 pub use shutdown::cancel_on_ctrl_c;
 pub use version_switch::{SwitchOutcome, VersionSwitchError, switch_version, version_is_cached};
