@@ -60,7 +60,10 @@ impl Default for NodeConfig {
 }
 
 /// A node in the Flow Graph: a [`Node`]-implementing module plus the
-/// graph-level bookkeeping around it (lifecycle state, config, metrics).
+/// graph-level bookkeeping around it (lifecycle state, config, metrics)
+/// and its own input [`NodeQueue`](crate::queue) (#36/#97) — every hop
+/// into this node goes through [`Self::queue_sender`]/
+/// [`Self::queue_receiver_mut`], not straight into [`Self::process`].
 pub struct GraphNode {
     id: NodeId,
     node_type: NodeType,
@@ -68,6 +71,8 @@ pub struct GraphNode {
     config: NodeConfig,
     state: NodeState,
     metrics: NodeMetrics,
+    queue_sender: NodeQueueSender,
+    queue_receiver: NodeQueueReceiver,
 }
 
 impl GraphNode {
@@ -75,10 +80,12 @@ impl GraphNode {
     ///
     /// `node_type` is read from `module.node_type()` rather than taken as a
     /// separate parameter, so it can never drift from what the module
-    /// itself reports.
+    /// itself reports. This node's input queue (#36) is sized from
+    /// `config.queue_capacity`.
     #[must_use]
     pub fn new(id: NodeId, module: Arc<dyn Node>, config: NodeConfig) -> Self {
         let node_type = module.node_type();
+        let (queue_sender, queue_receiver) = node_queue(config.queue_capacity);
         Self {
             id,
             node_type,
@@ -86,7 +93,26 @@ impl GraphNode {
             config,
             state: NodeState::Uninitialized,
             metrics: NodeMetrics::default(),
+            queue_sender,
+            queue_receiver,
         }
+    }
+
+    /// A cloneable handle to this node's input queue — every upstream
+    /// hop enqueues here (#97) rather than calling [`Self::process`]
+    /// directly; multiple concurrent producers (e.g. parallel branches
+    /// converging on the same node, #96) share the same three
+    /// priority lanes.
+    #[must_use]
+    pub fn queue_sender(&self) -> NodeQueueSender {
+        self.queue_sender.clone()
+    }
+
+    /// Mutable access to this node's input queue's receiving half, to
+    /// dequeue (with priority) whatever was enqueued via
+    /// [`Self::queue_sender`].
+    pub fn queue_receiver_mut(&mut self) -> &mut NodeQueueReceiver {
+        &mut self.queue_receiver
     }
 
     /// This node's identifier.
