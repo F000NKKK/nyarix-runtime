@@ -204,9 +204,8 @@ mod tests {
         let ctx = RuntimeContext::empty();
         let module: Box<dyn Module> = Box::new(StubModule::failing("broken-transport"));
 
-        let err = match instantiate(module, &ctx) {
-            Ok(_) => panic!("expected instantiate to fail"),
-            Err(err) => err,
+        let Err(err) = instantiate(module, &ctx) else {
+            panic!("expected instantiate to fail");
         };
 
         assert_eq!(err.name, "broken-transport");
