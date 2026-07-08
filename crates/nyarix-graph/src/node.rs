@@ -5,11 +5,13 @@ use std::sync::Arc;
 
 use nyarix_core::NodeId;
 use nyarix_module_api::{ModuleConfig, Node, NodeType};
+use serde::{Deserialize, Serialize};
 
 use crate::metrics::NodeMetrics;
 
 /// The lifecycle state of a graph node.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum NodeState {
     /// Constructed, but `initialize` hasn't run yet.
     #[default]

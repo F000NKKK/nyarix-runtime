@@ -1,6 +1,7 @@
 //! The `Node` trait — the contract for a Flow Graph node (see issue #17).
 
 use nyarix_core::NodeId;
+use serde::{Deserialize, Serialize};
 
 use crate::module::Module;
 
@@ -12,7 +13,8 @@ use crate::module::Module;
 /// single module can in principle be instantiated as different node types
 /// in different graphs (e.g. a metrics module as both an `Observer` and,
 /// via a different profile, feeding an `Aggregator`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum NodeType {
     /// Produces packets (entry point into the graph).
     Source,

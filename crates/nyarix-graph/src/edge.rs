@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use nyarix_core::NodeId;
 use nyarix_packet::Packet;
+use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::PollSender;
@@ -12,7 +13,8 @@ use tokio_util::sync::PollSender;
 use crate::condition::Condition;
 
 /// How an edge routes packets from one node to the next.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum EdgeType {
     /// Always taken; the default linear pipeline connection.
     Sequential,
