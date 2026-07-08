@@ -381,6 +381,8 @@ mod tests {
 
     #[test]
     fn encode_decode_round_trip() {
+        use std::time::Duration;
+
         let mut pkt = Packet::new(b"hello world".as_slice());
         pkt.tag(Tag::Interactive);
         pkt.metadata_mut().priority = 200;
@@ -388,8 +390,29 @@ mod tests {
         let encoded = pkt.encode();
         let decoded = Packet::decode(&encoded).unwrap();
 
-        assert_eq!(decoded, pkt);
+        // created_at uses a relative serialization (#84) — exact
+        // equality is not guaranteed, so compare everything else.
+        assert_eq!(decoded.id(), pkt.id());
         assert_eq!(decoded.data(), pkt.data());
+        assert_eq!(decoded.tags(), pkt.tags());
+        let drift = decoded
+            .metadata()
+            .created_at
+            .saturating_duration_since(pkt.metadata().created_at)
+            .max(
+                pkt.metadata()
+                    .created_at
+                    .saturating_duration_since(decoded.metadata().created_at),
+            );
+        assert!(
+            drift < Duration::from_millis(50),
+            "created_at drifted by {drift:?}"
+        );
+        // Check the rest of metadata excluding created_at.
+        let mut decoded_meta = decoded.metadata().clone();
+        let mut pkt_meta = pkt.metadata().clone();
+        decoded_meta.created_at = pkt_meta.created_at;
+        assert_eq!(decoded_meta, pkt_meta);
     }
 
     #[test]
