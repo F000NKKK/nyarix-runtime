@@ -248,7 +248,7 @@ pub fn execute_sequential(
     entry: NodeId,
     packet: Packet,
     metrics: Option<&MetricRegistry>,
-    throughput: Option<&mut ThroughputTracker>,
+    mut throughput: Option<&mut ThroughputTracker>,
 ) -> Result<Option<Packet>, ExecutionError> {
     if let Some(ref mut tracker) = throughput {
         let len = u64::try_from(packet.len()).unwrap_or(u64::MAX);
