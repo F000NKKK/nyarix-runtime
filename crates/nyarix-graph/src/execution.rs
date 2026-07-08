@@ -178,13 +178,9 @@ fn record_and_check_processing_time(
 ///
 /// - `process_calls_total` (counter) — incremented once per call.
 /// - `process_duration_us` (histogram) — `elapsed` in microseconds.
-/// - `queue_depth` (gauge) — `node`'s current
-///   [`nyarix_module_api::Node::input_queue_depth`]. **Caveat**: this
-///   reports whatever the module itself returns from that method —
-///   until `NodeQueue` (#36) is actually wired into execution (#97),
-///   there's no live queue behind it to measure, so a module that
-///   hasn't implemented it meaningfully just reports whatever constant
-///   it chose (`0` in every stub/test module in this codebase so far).
+/// - `queue_depth` (gauge) — `node`'s real, live
+///   [`GraphNode::queue_depth`] (#97) — how many packets are currently
+///   buffered in its own `NodeQueue`, across all three priority lanes.
 /// - `errors_total` (counter) — incremented when `succeeded` is `false`.
 ///
 /// "Retries" (`retries_total`, #82's remaining bullet) isn't recorded
@@ -214,7 +210,7 @@ fn record_node_metrics(
         .observe(elapsed.as_micros() as f64);
     metrics
         .gauge(name, "queue_depth")
-        .set(i64::try_from(node.module().input_queue_depth()).unwrap_or(i64::MAX));
+        .set(i64::try_from(node.queue_depth()).unwrap_or(i64::MAX));
     if !succeeded {
         metrics.counter(name, "errors_total").increment(1);
     }

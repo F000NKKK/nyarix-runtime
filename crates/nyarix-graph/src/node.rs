@@ -115,6 +115,15 @@ impl GraphNode {
         &mut self.queue_receiver
     }
 
+    /// How many packets are currently buffered in this node's input
+    /// queue, across all three lanes (#97) — the real, live depth,
+    /// distinct from whatever [`Node::input_queue_depth`] a module
+    /// self-reports.
+    #[must_use]
+    pub fn queue_depth(&self) -> usize {
+        self.queue_receiver.len()
+    }
+
     /// This node's identifier.
     #[must_use]
     pub const fn id(&self) -> NodeId {
