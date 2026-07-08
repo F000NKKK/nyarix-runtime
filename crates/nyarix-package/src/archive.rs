@@ -223,8 +223,7 @@ impl PackageReader {
             return Ok(SignatureStatus::Unsigned);
         };
 
-        let Ok(signature_bytes): Result<[u8; 64], _> = signature_bytes.as_slice().try_into()
-        else {
+        let Ok(signature_bytes): Result<[u8; 64], _> = signature_bytes.as_slice().try_into() else {
             return Ok(SignatureStatus::Invalid);
         };
         let Ok(public_key_bytes): Result<[u8; 32], _> = public_key_bytes.as_slice().try_into()
@@ -236,12 +235,10 @@ impl PackageReader {
             return Ok(SignatureStatus::Invalid);
         };
 
-        Ok(
-            match signing::verify(&entries, &signature, &public_key) {
-                Ok(()) => SignatureStatus::Verified,
-                Err(signing::SignatureVerificationFailed) => SignatureStatus::Invalid,
-            },
-        )
+        Ok(match signing::verify(&entries, &signature, &public_key) {
+            Ok(()) => SignatureStatus::Verified,
+            Err(signing::SignatureVerificationFailed) => SignatureStatus::Invalid,
+        })
     }
 
     /// Require this package to carry a signature that verifies —
@@ -417,7 +414,10 @@ description = "UDP transport"
 
         let reader = PackageReader::open(&data).unwrap();
 
-        assert_eq!(reader.signature_status().unwrap(), SignatureStatus::Unsigned);
+        assert_eq!(
+            reader.signature_status().unwrap(),
+            SignatureStatus::Unsigned
+        );
         assert!(reader.require_valid_signature().is_err());
     }
 
@@ -433,7 +433,10 @@ description = "UDP transport"
 
         let reader = PackageReader::open(&data).unwrap();
 
-        assert_eq!(reader.signature_status().unwrap(), SignatureStatus::Verified);
+        assert_eq!(
+            reader.signature_status().unwrap(),
+            SignatureStatus::Verified
+        );
         assert!(reader.require_valid_signature().is_ok());
     }
 
@@ -445,10 +448,7 @@ description = "UDP transport"
         let signature = signing::sign(
             &[
                 ("manifest.toml".to_string(), MANIFEST.as_bytes().to_vec()),
-                (
-                    "payload/module.wasm".to_string(),
-                    b"fake wasm".to_vec(),
-                ),
+                ("payload/module.wasm".to_string(), b"fake wasm".to_vec()),
             ],
             &signing_key,
         );
