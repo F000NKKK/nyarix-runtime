@@ -189,6 +189,25 @@ mod tests {
     }
 
     #[test]
+    fn metadata_declares_sandbox_permissions() {
+        use crate::sandbox_permission::{AccessMode, SandboxPermission};
+
+        let meta = ModuleMetadata::new("storage-module", version("0.1.0"), ModuleType::Flow)
+            .with_sandbox_permissions(vec![
+                SandboxPermission::FilesystemPath {
+                    path: "/var/nyarix/data".into(),
+                    mode: AccessMode::ReadWrite,
+                },
+                SandboxPermission::NetworkAddress {
+                    host: "example.com".to_string(),
+                    port: Some(443),
+                },
+            ]);
+
+        assert_eq!(meta.sandbox_permissions.len(), 2);
+    }
+
+    #[test]
     fn required_capabilities_mask_matches_from_capabilities() {
         let meta = ModuleMetadata::new("quic-transport", version("0.1.0"), ModuleType::Transport)
             .with_required_capabilities(vec![Capability::Network, Capability::Clock]);

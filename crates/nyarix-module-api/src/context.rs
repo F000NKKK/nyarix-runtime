@@ -639,7 +639,7 @@ mod tests {
 
     #[test]
     fn with_granted_capabilities_is_reflected_back() {
-        let mask = CapabilityMask::from_capabilities(&[crate::capability::Capability::Network]);
+        let mask = CapabilityMask::from_capabilities(&[Capability::Network]);
         let ctx = RuntimeContext::empty().with_granted_capabilities(mask);
         assert_eq!(ctx.granted_capabilities(), mask);
     }
@@ -792,7 +792,7 @@ mod tests {
                 "/tmp",
             )]))
             .with_network_policy(NetworkPolicy::deny_all().allow_host("example.com"))
-            .with_io_rate_limiter(crate::rate_limiter::RateLimiter::new(1, 0));
+            .with_io_rate_limiter(RateLimiter::new(1, 0));
         let metadata = support::new_metadata("busy-module");
 
         assert!(
