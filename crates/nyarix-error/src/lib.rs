@@ -173,6 +173,21 @@ pub enum ModuleError {
         /// The resource whose limit was exceeded.
         resource: String,
     },
+    /// The module's `Arc` had more than one owner when exclusive
+    /// (`&mut`) access was needed to run its lifecycle methods.
+    ///
+    /// Modules resolved as dependencies (`RuntimeContext::resolve_dependency`,
+    /// #18) are read-only by design (#95): a module's own graph node
+    /// is the only place `process`/`initialize`/`shutdown`/`migrate`
+    /// should ever be called from. Seeing this error means something
+    /// held a second `Arc` to a module that's also wired into the
+    /// graph and tried to run it through that second handle — a
+    /// caller bug, reported here instead of panicking.
+    #[error("module '{name}' is not exclusively owned; cannot get mutable access")]
+    NotExclusivelyOwned {
+        /// The module's name.
+        name: String,
+    },
 }
 
 /// Graph-related errors.

@@ -136,35 +136,37 @@ impl GraphNode {
 
     /// Run this node's module on a packet (see #32).
     ///
-    /// # Panics
-    /// Panics if the module `Arc` has more than one owner — e.g. it was
-    /// also resolved as another node's dependency via
-    /// `RuntimeContext::resolve_dependency` (#18). `Module::process`
-    /// needs exclusive access, and there isn't yet an established
-    /// strategy for sharing mutable access to a *running* module; the
-    /// Scheduler (M4) will need to settle that properly (locking?
-    /// message-passing to an owning task?). Until then, a node's module
-    /// must not be shared elsewhere while the graph is executing.
+    /// # Errors
+    /// Returns [`nyarix_error::ModuleError::NotExclusivelyOwned`] if the
+    /// module `Arc` has more than one owner — e.g. it was also resolved
+    /// as another node's dependency via `RuntimeContext::resolve_dependency`
+    /// (#18). `Module::process` needs exclusive access; #95 settled
+    /// that a resolved dependency is read-only by design (a module
+    /// should never be run through anything but its own graph node),
+    /// so this indicates a caller bug, not something to design a
+    /// locking strategy around. Otherwise returns whatever error the
+    /// module's own `process` returns.
     pub fn process(
         &mut self,
         packet: nyarix_packet::Packet,
     ) -> nyarix_module_api::Result<Option<nyarix_packet::Packet>> {
+        let name = self.module.metadata().name.clone();
         Arc::get_mut(&mut self.module)
-            .expect("node module Arc must be uniquely owned to process a packet")
+            .ok_or(nyarix_error::ModuleError::NotExclusivelyOwned { name })?
             .process(packet)
     }
 
     /// Call this node's module's `migrate` (see #38 hot swap).
     ///
-    /// # Panics
-    /// Same condition as [`Self::process`] — the module `Arc` must be
-    /// uniquely owned.
+    /// # Errors
+    /// Same condition as [`Self::process`].
     pub fn migrate(
         &mut self,
         ctx: &nyarix_module_api::RuntimeContext,
     ) -> nyarix_module_api::Result<()> {
+        let name = self.module.metadata().name.clone();
         Arc::get_mut(&mut self.module)
-            .expect("node module Arc must be uniquely owned to migrate")
+            .ok_or(nyarix_error::ModuleError::NotExclusivelyOwned { name })?
             .migrate(ctx)
     }
 
@@ -172,17 +174,17 @@ impl GraphNode {
     /// to [`NodeState::Running`] (see #43's execution loop, which calls
     /// this on every node before the first `process`).
     ///
-    /// # Panics
-    /// Same condition as [`Self::process`] — the module `Arc` must be
-    /// uniquely owned.
+    /// # Errors
+    /// Same condition as [`Self::process`].
     pub fn initialize(
         &mut self,
         ctx: &nyarix_module_api::RuntimeContext,
     ) -> nyarix_module_api::Result<()> {
         self.set_state(NodeState::Initializing);
+        let name = self.module.metadata().name.clone();
         let result = Arc::get_mut(&mut self.module)
-            .expect("node module Arc must be uniquely owned to initialize")
-            .initialize(ctx);
+            .ok_or(nyarix_error::ModuleError::NotExclusivelyOwned { name })
+            .and_then(|module| module.initialize(ctx));
         if result.is_ok() {
             self.set_state(NodeState::Running);
         }
@@ -198,17 +200,17 @@ impl GraphNode {
     /// whether `shutdown` itself succeeded, so a failing module doesn't
     /// leak subscriber tasks.
     ///
-    /// # Panics
-    /// Same condition as [`Self::process`] — the module `Arc` must be
-    /// uniquely owned.
+    /// # Errors
+    /// Same condition as [`Self::process`].
     pub fn shutdown(
         &mut self,
         ctx: &nyarix_module_api::RuntimeContext,
     ) -> nyarix_module_api::Result<()> {
         self.set_state(NodeState::Stopping);
+        let name = self.module.metadata().name.clone();
         let result = Arc::get_mut(&mut self.module)
-            .expect("node module Arc must be uniquely owned to shut down")
-            .shutdown(ctx);
+            .ok_or(nyarix_error::ModuleError::NotExclusivelyOwned { name })
+            .and_then(|module| module.shutdown(ctx));
         ctx.cancel_subscriptions();
         if result.is_ok() {
             self.set_state(NodeState::Stopped);
@@ -301,6 +303,26 @@ mod tests {
         let node = GraphNode::new(NodeId::new(), module, NodeConfig::default());
 
         assert_eq!(node.state(), NodeState::Uninitialized);
+    }
+
+    #[test]
+    fn a_shared_module_reports_an_error_instead_of_panicking() {
+        let module: Arc<dyn Node> = Arc::new(StubRouter::new());
+        // A second owner, e.g. from `RuntimeContext::resolve_dependency`
+        // (#95) — the module is no longer exclusively owned.
+        let _second_owner = Arc::clone(&module);
+        let mut node = GraphNode::new(NodeId::new(), module, NodeConfig::default());
+
+        let ctx = RuntimeContext::empty();
+        let Err(err) = node.initialize(&ctx) else {
+            panic!("expected initialize to fail while the module is shared");
+        };
+        assert!(matches!(err, ModuleError::NotExclusivelyOwned { name } if name == "router"));
+
+        let Err(err) = node.process(Packet::new(b"data".as_slice())) else {
+            panic!("expected process to fail while the module is shared");
+        };
+        assert!(matches!(err, ModuleError::NotExclusivelyOwned { .. }));
     }
 
     #[test]

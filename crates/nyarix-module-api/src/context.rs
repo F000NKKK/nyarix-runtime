@@ -520,12 +520,18 @@ impl RuntimeContext {
     /// Look up another module this module depends on, if the Runtime
     /// resolved and granted access to it.
     ///
-    /// Note: `Arc<dyn Module>` gives shared *read* access only — `Module`'s
-    /// `initialize`/`process`/`shutdown` take `&mut self`, so actually
-    /// invoking them through a resolved dependency needs an interior
-    /// mutability strategy (e.g. `Arc<Mutex<dyn Module>>`) that the Module
-    /// Loader (M5) hasn't settled on yet. The signature here matches #18's
-    /// spec as written; revisit if M5 lands on a different sharing shape.
+    /// **Read-only by design (#95)**: `Arc<dyn Module>` gives shared
+    /// *read* access — `metadata()`/`health()`, introspection — not
+    /// `&mut self`. A resolved dependency's `initialize`/`process`/
+    /// `shutdown`/`migrate` must never be called through this handle:
+    /// a module only ever runs via its own graph node
+    /// (`nyarix_graph::GraphNode`), which holds the sole `Arc` that's
+    /// allowed to get mutable access to it. Calling a lifecycle method
+    /// through a second `Arc` (this one, or any other) fails with
+    /// [`nyarix_error::ModuleError::NotExclusivelyOwned`] instead of
+    /// panicking, precisely because that's a caller bug this handle's
+    /// contract already rules out — not a case needing a locking
+    /// strategy (`Arc<Mutex<dyn Module>>` etc.) designed around it.
     #[must_use]
     pub fn resolve_dependency(&self, name: &str) -> Option<Arc<dyn Module>> {
         self.dependencies.get(name).cloned()
