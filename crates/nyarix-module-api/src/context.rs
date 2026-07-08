@@ -402,12 +402,21 @@ impl RuntimeContext {
         &self.config
     }
 
-    /// Handle for recording metrics.
-    ///
-    /// Currently a no-op placeholder — see [`MetricsHandle`] docs (M8).
+    /// Handle for recording metrics (#80) — see [`MetricsHandle`] docs.
     #[must_use]
     pub fn metrics(&self) -> &MetricsHandle {
         &self.metrics
+    }
+
+    /// Attach a live [`crate::metrics::MetricRegistry`] (#80) — what
+    /// the Runtime hands modules once it actually has one running,
+    /// same pattern as [`Self::with_event_bus`]. Every other
+    /// constructor defaults to [`MetricsHandle::default`] (no
+    /// registry attached, so recording is a silent no-op).
+    #[must_use]
+    pub fn with_metrics_registry(mut self, registry: Arc<crate::metrics::MetricRegistry>) -> Self {
+        self.metrics = MetricsHandle::with_registry(registry);
+        self
     }
 
     /// Publish an event (#49).
