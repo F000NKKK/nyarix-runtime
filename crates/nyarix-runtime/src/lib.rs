@@ -15,8 +15,12 @@
 //! actually instantiating a module, which needs #107.
 //! [`graph_builder::build_from_profile`] (#42) builds a [`FlowGraph`]
 //! from a profile's module stack, given a name→node lookup (see that
-//! module's scope note). The rest (dependency resolver wiring into the
-//! graph, metrics) are still their own later milestone issues.
+//! module's scope note). [`version_switch::switch_version`] (#68)
+//! decides whether switching a package's active version can hot-swap
+//! in place or needs a full graph restart (see that module's scope
+//! note on why the actual re-instantiation still needs #107). The rest
+//! (dependency resolver wiring into the graph, metrics) are still their
+//! own later milestone issues.
 
 pub mod cpu_pool;
 pub mod execution_loop;
@@ -26,6 +30,7 @@ pub mod io_pool;
 pub mod module_loader;
 pub mod priority;
 pub mod shutdown;
+pub mod version_switch;
 
 pub use cpu_pool::CpuPool;
 pub use execution_loop::{
@@ -40,3 +45,4 @@ pub use nyarix_graph::FlowGraph;
 pub use nyarix_module_api::{Event, EventBus, EventFilter, EventKind};
 pub use priority::{PriorityReceiver, PrioritySender, TaskPriority, priority_queue};
 pub use shutdown::cancel_on_ctrl_c;
+pub use version_switch::{SwitchOutcome, VersionSwitchError, switch_version, version_is_cached};
