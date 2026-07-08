@@ -660,8 +660,14 @@ mod tests {
         graph.connect(ab).unwrap();
         graph.connect(bc).unwrap();
 
-        let result =
-            execute_sequential(&mut graph, a_id, Packet::new(b"data".as_slice()), None, None).unwrap();
+        let result = execute_sequential(
+            &mut graph,
+            a_id,
+            Packet::new(b"data".as_slice()),
+            None,
+            None,
+        )
+        .unwrap();
         assert!(result.is_none());
     }
 
@@ -678,7 +684,13 @@ mod tests {
         graph.connect(ab).unwrap();
         // `b` has no outgoing edge and isn't an exit point.
 
-        let result = execute_sequential(&mut graph, a_id, Packet::new(b"data".as_slice()), None, None);
+        let result = execute_sequential(
+            &mut graph,
+            a_id,
+            Packet::new(b"data".as_slice()),
+            None,
+            None,
+        );
         assert!(matches!(
             result,
             Err(ExecutionError::Graph(GraphError::BuildFailed { .. }))
@@ -692,7 +704,13 @@ mod tests {
         let a_id = a.id();
         graph.add_node(a);
 
-        let result = execute_sequential(&mut graph, a_id, Packet::new(b"data".as_slice()), None, None);
+        let result = execute_sequential(
+            &mut graph,
+            a_id,
+            Packet::new(b"data".as_slice()),
+            None,
+            None,
+        );
         assert!(matches!(
             result,
             Err(ExecutionError::Graph(GraphError::MissingNode { .. }))
@@ -758,7 +776,13 @@ mod tests {
         graph.mark_exit_point(a_id);
         graph.add_node(a);
 
-        let result = execute_sequential(&mut graph, a_id, Packet::new(b"data".as_slice()), None, None);
+        let result = execute_sequential(
+            &mut graph,
+            a_id,
+            Packet::new(b"data".as_slice()),
+            None,
+            None,
+        );
 
         let Err(ExecutionError::Module(ModuleError::QuotaExceeded { name, resource })) = result
         else {

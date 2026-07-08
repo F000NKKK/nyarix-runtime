@@ -99,8 +99,8 @@ mod created_at_millis {
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
         let now = Instant::now();
-        let ms_ago = u64::try_from(now.saturating_duration_since(*value).as_millis())
-            .unwrap_or(u64::MAX);
+        let ms_ago =
+            u64::try_from(now.saturating_duration_since(*value).as_millis()).unwrap_or(u64::MAX);
         ms_ago.serialize(serializer)
     }
 

@@ -60,7 +60,10 @@ impl ThroughputTracker {
     pub fn record(&mut self, flow_id: FlowId, bytes: u64) {
         let now = Instant::now();
         self.total.push_back((now, bytes));
-        self.flows.entry(flow_id).or_default().push_back((now, bytes));
+        self.flows
+            .entry(flow_id)
+            .or_default()
+            .push_back((now, bytes));
         self.prune(now);
         self.export_gauges();
     }
