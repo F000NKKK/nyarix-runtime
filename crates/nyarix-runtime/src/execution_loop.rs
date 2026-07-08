@@ -118,6 +118,33 @@ pub async fn shutdown_all_nodes(
     first_error.map_or(Ok(()), Err)
 }
 
+/// Everything [`run_with_timeout`] needs to drive one execution loop —
+/// grouped into a struct rather than passed as separate arguments since
+/// there are enough of them (graph, entry point, context, both ends of
+/// the packet pipe, and three independent stop/pause signals) that a
+/// positional argument list would be easy to miscall by swapping two of
+/// similarly-typed ones.
+pub struct RunConfig {
+    /// The graph to run packets through.
+    pub graph: Arc<Mutex<FlowGraph>>,
+    /// Which node a packet from `source` enters the graph at.
+    pub entry: NodeId,
+    /// Runtime context passed to every node's lifecycle call.
+    pub ctx: RuntimeContext,
+    /// Where packets come from.
+    pub source: mpsc::Receiver<Packet>,
+    /// Where a packet that reaches an exit point is forwarded to.
+    pub sink: mpsc::Sender<Packet>,
+    /// Signals the loop to stop and begin graceful shutdown.
+    pub shutdown: CancellationToken,
+    /// Bounds how long draining and node shutdown are each allowed to
+    /// take (see [`DEFAULT_SHUTDOWN_TIMEOUT`]).
+    pub shutdown_timeout: Duration,
+    /// Signals the loop to stop pulling new packets during a live graph
+    /// mutation (see [`crate::pause::GraphPauseHandle`], #98).
+    pub pause: GraphPauseWatcher,
+}
+
 /// Run the main execution loop with [`DEFAULT_SHUTDOWN_TIMEOUT`]. See
 /// [`run_with_timeout`] for the full behavior and a way to override it.
 ///
@@ -132,16 +159,16 @@ pub async fn run(
     shutdown: CancellationToken,
     pause: GraphPauseWatcher,
 ) -> Result<(), ExecutionLoopError> {
-    run_with_timeout(
+    run_with_timeout(RunConfig {
         graph,
         entry,
         ctx,
         source,
         sink,
         shutdown,
-        DEFAULT_SHUTDOWN_TIMEOUT,
+        shutdown_timeout: DEFAULT_SHUTDOWN_TIMEOUT,
         pause,
-    )
+    })
     .await
 }
 
@@ -182,17 +209,18 @@ pub async fn run(
 /// errors encountered *during* the loop (main or draining) are logged
 /// via `tracing`, not propagated: one bad packet shouldn't take down the
 /// whole Runtime.
-#[allow(clippy::too_many_arguments)]
-pub async fn run_with_timeout(
-    graph: Arc<Mutex<FlowGraph>>,
-    entry: NodeId,
-    ctx: RuntimeContext,
-    mut source: mpsc::Receiver<Packet>,
-    sink: mpsc::Sender<Packet>,
-    shutdown: CancellationToken,
-    shutdown_timeout: Duration,
-    mut pause: GraphPauseWatcher,
-) -> Result<(), ExecutionLoopError> {
+pub async fn run_with_timeout(config: RunConfig) -> Result<(), ExecutionLoopError> {
+    let RunConfig {
+        graph,
+        entry,
+        ctx,
+        mut source,
+        sink,
+        shutdown,
+        shutdown_timeout,
+        mut pause,
+    } = config;
+
     initialize_all_nodes(&graph, &ctx).await?;
 
     loop {
@@ -449,16 +477,16 @@ mod tests {
         // drain step (step 2), not the main loop.
         shutdown.cancel();
 
-        run_with_timeout(
+        run_with_timeout(RunConfig {
             graph,
             entry,
-            RuntimeContext::empty(),
-            source_rx,
-            sink_tx,
+            ctx: RuntimeContext::empty(),
+            source: source_rx,
+            sink: sink_tx,
             shutdown,
-            Duration::from_secs(5),
-            GraphPauseWatcher::always_resumed(),
-        )
+            shutdown_timeout: Duration::from_secs(5),
+            pause: GraphPauseWatcher::always_resumed(),
+        })
         .await
         .unwrap();
 

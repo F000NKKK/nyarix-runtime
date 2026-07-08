@@ -63,8 +63,8 @@ pub use capability_enforcement::{EnforcementError, enforce_and_instantiate};
 pub use cpu_pool::CpuPool;
 pub use debug_dump::{DebugDump, build_debug_dump};
 pub use execution_loop::{
-    DEFAULT_SHUTDOWN_TIMEOUT, ExecutionLoopError, initialize_all_nodes, run, run_with_timeout,
-    shutdown_all_nodes,
+    DEFAULT_SHUTDOWN_TIMEOUT, ExecutionLoopError, RunConfig, initialize_all_nodes, run,
+    run_with_timeout, shutdown_all_nodes,
 };
 pub use graph_builder::{BuildError, build_from_profile};
 pub use init::{RuntimeHandle, RuntimeInitError};
