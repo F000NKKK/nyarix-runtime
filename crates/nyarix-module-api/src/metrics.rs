@@ -159,10 +159,20 @@ impl HistogramSnapshot {
     /// there's no upper bound on the implicit `+Infinity` bucket,
     /// p100 can't be exactly computed from buckets alone, so this
     /// returns the last finite bound as an approximation.
+    ///
+    /// A histogram registered with no explicit bounds (just the
+    /// implicit `+Infinity` bucket) has nothing to interpolate within,
+    /// so this falls back to the mean (`sum / count`) instead — still
+    /// `None` only when there are genuinely no observations, not
+    /// whenever there happen to be no buckets.
     #[must_use]
     pub fn percentile(&self, p: f64) -> Option<f64> {
         if self.count == 0 {
             return None;
+        }
+        if self.bounds.is_empty() {
+            #[allow(clippy::cast_precision_loss)]
+            return Some(self.sum / self.count as f64);
         }
         let target = (p.clamp(0.0, 1.0) * self.count as f64).ceil() as u64;
 
@@ -448,6 +458,23 @@ mod tests {
     #[test]
     fn percentile_returns_none_for_empty_histogram() {
         let histogram = Histogram::new(vec![10.0, 50.0]);
+        let snapshot = histogram.snapshot();
+        assert_eq!(snapshot.p50(), None);
+    }
+
+    #[test]
+    fn percentile_falls_back_to_the_mean_when_no_bounds_are_registered() {
+        let histogram = Histogram::new(vec![]);
+        histogram.observe(10.0);
+        histogram.observe(20.0);
+
+        let snapshot = histogram.snapshot();
+        assert_eq!(snapshot.p50(), Some(15.0));
+    }
+
+    #[test]
+    fn percentile_is_none_for_a_boundless_histogram_with_no_observations() {
+        let histogram = Histogram::new(vec![]);
         let snapshot = histogram.snapshot();
         assert_eq!(snapshot.p50(), None);
     }
