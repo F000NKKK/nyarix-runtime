@@ -32,7 +32,29 @@ pub enum NodeType {
     Transport,
     /// Selects the outgoing path for a packet.
     Router,
-    /// Combines multiple packets/streams into one.
+    /// Combines multiple packets/streams into one (#96).
+    ///
+    /// **Merge semantics are entirely the module's own `Module::process`
+    /// logic — the execution engine needs no special support for this
+    /// node type.** Each of `N` converging branches (multiple upstream
+    /// edges targeting the same `Aggregator` node — already structurally
+    /// possible, since [`NodeId`] is just a graph-wide identifier and
+    /// nothing stops two edges from sharing a `to`) calls `process` once,
+    /// same as any other node. The module tracks how many it's seen in
+    /// its own state and:
+    /// - returns `Ok(None)` (absorbed, per #19) for every branch before
+    ///   the last one it's waiting for;
+    /// - returns `Ok(Some(merged))` on whichever call completes the
+    ///   set it decided to wait for.
+    ///
+    /// This composes with `nyarix_graph::execute_parallel`'s existing
+    /// contract with zero changes to the engine: a branch that gets
+    /// `None` back contributes nothing to the result `Vec<Packet>`
+    /// (already true for any absorbing node, #19); the branch that
+    /// gets `Some` continues on normally. Whether "the set it decided
+    /// to wait for" means all upstream branches, first-N, or a
+    /// timeout-bounded subset is the module's own policy — the engine
+    /// has no opinion and needs none.
     Aggregator,
     /// Observes packets without altering them.
     Observer,
