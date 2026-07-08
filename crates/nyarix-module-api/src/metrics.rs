@@ -265,6 +265,39 @@ impl MetricRegistry {
         )
     }
 
+    /// Look up an already-registered counter, without creating one if
+    /// `module`/`name` was never recorded — a pure read, unlike
+    /// [`Self::counter`] (which always registers on first call).
+    /// Callers that only want to inspect (e.g. #86's graph export)
+    /// rather than start recording should use this instead, so
+    /// inspecting a registry doesn't populate it with zero-value
+    /// placeholders as a side effect.
+    #[must_use]
+    pub fn get_counter(&self, module: &str, name: &str) -> Option<Arc<Counter>> {
+        self.counters
+            .get(&metric_name(module, name))
+            .map(|entry| Arc::clone(entry.value()))
+    }
+
+    /// Look up an already-registered gauge — see [`Self::get_counter`]'s
+    /// docs on why this exists alongside [`Self::gauge`].
+    #[must_use]
+    pub fn get_gauge(&self, module: &str, name: &str) -> Option<Arc<Gauge>> {
+        self.gauges
+            .get(&metric_name(module, name))
+            .map(|entry| Arc::clone(entry.value()))
+    }
+
+    /// Look up an already-registered histogram — see
+    /// [`Self::get_counter`]'s docs on why this exists alongside
+    /// [`Self::histogram`].
+    #[must_use]
+    pub fn get_histogram(&self, module: &str, name: &str) -> Option<Arc<Histogram>> {
+        self.histograms
+            .get(&metric_name(module, name))
+            .map(|entry| Arc::clone(entry.value()))
+    }
+
     /// Export every currently registered metric as a JSON object
     /// (this issue's optional "Экспорт в Prometheus/JSON формат").
     #[must_use]
@@ -410,6 +443,48 @@ mod tests {
         let b = registry.counter("quic", "packets_sent");
         a.increment(5);
         assert_eq!(b.value(), 5);
+    }
+
+    #[test]
+    fn get_counter_does_not_create_one_that_was_never_recorded() {
+        let registry = MetricRegistry::new();
+        assert!(registry.get_counter("quic", "packets_sent").is_none());
+        // Confirms the lookup above didn't register it as a side effect.
+        assert!(registry.get_counter("quic", "packets_sent").is_none());
+    }
+
+    #[test]
+    fn get_counter_finds_an_already_registered_counter() {
+        let registry = MetricRegistry::new();
+        registry.counter("quic", "packets_sent").increment(3);
+        let found = registry.get_counter("quic", "packets_sent").unwrap();
+        assert_eq!(found.value(), 3);
+    }
+
+    #[test]
+    fn get_gauge_and_get_histogram_are_read_only_too() {
+        let registry = MetricRegistry::new();
+        assert!(registry.get_gauge("quic", "queue_depth").is_none());
+        assert!(
+            registry
+                .get_histogram("quic", "process_duration_us")
+                .is_none()
+        );
+
+        registry.gauge("quic", "queue_depth").set(5);
+        registry
+            .histogram("quic", "process_duration_us", vec![1.0])
+            .observe(0.5);
+
+        assert_eq!(registry.get_gauge("quic", "queue_depth").unwrap().value(), 5);
+        assert_eq!(
+            registry
+                .get_histogram("quic", "process_duration_us")
+                .unwrap()
+                .snapshot()
+                .count,
+            1
+        );
     }
 
     #[test]
