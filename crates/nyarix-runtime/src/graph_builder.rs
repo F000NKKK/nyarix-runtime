@@ -202,7 +202,9 @@ mod tests {
         let profile = profile(&["a", "missing"]);
         let modules = registry(&["a"]);
 
-        let err = build_from_profile(&profile, |name| modules.get(name).cloned()).unwrap_err();
+        let Err(err) = build_from_profile(&profile, |name| modules.get(name).cloned()) else {
+            panic!("expected build_from_profile to fail");
+        };
 
         assert!(matches!(err, BuildError::UnknownModule(name) if name == "missing"));
     }

@@ -454,7 +454,7 @@ dependencies = [
 
 [[package]]
 name = "nyarix-config"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "serde",
  "toml",
@@ -462,7 +462,7 @@ dependencies = [
 
 [[package]]
 name = "nyarix-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bytes",
  "nyarix-error",
@@ -474,7 +474,7 @@ dependencies = [
 
 [[package]]
 name = "nyarix-error"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "thiserror",
  "tracing",
@@ -482,7 +482,7 @@ dependencies = [
 
 [[package]]
 name = "nyarix-graph"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "nyarix-core",
  "nyarix-error",
@@ -498,7 +498,7 @@ dependencies = [
 
 [[package]]
 name = "nyarix-loader"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "nyarix-error",
@@ -513,7 +513,7 @@ dependencies = [
 
 [[package]]
 name = "nyarix-module-api"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bitflags",
  "nyarix-core",
@@ -529,7 +529,7 @@ dependencies = [
 
 [[package]]
 name = "nyarix-package"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ed25519-dalek",
  "nyarix-error",
@@ -545,7 +545,7 @@ dependencies = [
 
 [[package]]
 name = "nyarix-packet"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bincode",
  "bitflags",
@@ -561,7 +561,7 @@ dependencies = [
 
 [[package]]
 name = "nyarix-runtime"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "nyarix-config",
  "nyarix-core",
@@ -693,7 +693,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-test"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "nyarix-runtime",
  "tokio",
