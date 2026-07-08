@@ -390,8 +390,8 @@ mod tests {
         ));
     }
 
-    fn shared(graph: FlowGraph) -> std::sync::Arc<tokio::sync::Mutex<FlowGraph>> {
-        std::sync::Arc::new(tokio::sync::Mutex::new(graph))
+    fn shared(graph: FlowGraph) -> Arc<tokio::sync::Mutex<FlowGraph>> {
+        Arc::new(tokio::sync::Mutex::new(graph))
     }
 
     #[tokio::test]
