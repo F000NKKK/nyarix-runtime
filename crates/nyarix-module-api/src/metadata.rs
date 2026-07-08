@@ -171,6 +171,17 @@ mod tests {
     }
 
     #[test]
+    fn required_capabilities_mask_matches_from_capabilities() {
+        let meta = ModuleMetadata::new("quic-transport", version("0.1.0"), ModuleType::Transport)
+            .with_required_capabilities(vec![Capability::Network, Capability::Clock]);
+
+        assert_eq!(
+            meta.required_capabilities_mask(),
+            CapabilityMask::from_capabilities(&[Capability::Network, Capability::Clock])
+        );
+    }
+
+    #[test]
     fn metadata_declares_provided_tags_separately_from_capabilities() {
         let meta = ModuleMetadata::new("udp-transport", version("0.1.0"), ModuleType::Transport)
             .with_provided_capabilities(vec![Capability::Network])
