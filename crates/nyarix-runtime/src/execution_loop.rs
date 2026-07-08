@@ -536,6 +536,7 @@ mod tests {
             source_rx,
             sink_tx,
             shutdown.clone(),
+            GraphPauseWatcher::always_resumed(),
         ));
 
         source_tx

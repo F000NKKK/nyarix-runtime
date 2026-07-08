@@ -37,6 +37,12 @@
 //! (API call, crash) are deferred — see that module's scope note. The
 //! rest (dependency resolver wiring into the graph) is still its own
 //! later milestone issue.
+//! [`pause::GraphPauseHandle`] (#98) coordinates topology mutation
+//! ([`FlowGraph::insert_after`]/`remove_and_reconnect`/`swap_node`, #37/#38)
+//! against a live [`execution_loop::run`]: pausing stops the loop from
+//! pulling new packets, so a caller can mutate the graph without a fresh
+//! packet starting a trip through it mid-edit — see that module's docs
+//! for the exact guarantee (and what it doesn't cover).
 
 pub mod capability_enforcement;
 pub mod cpu_pool;
@@ -46,6 +52,7 @@ pub mod graph_builder;
 pub mod init;
 pub mod io_pool;
 pub mod module_loader;
+pub mod pause;
 pub mod priority;
 pub mod runtime_metrics;
 pub mod sandbox;
@@ -65,6 +72,7 @@ pub use io_pool::IoPool;
 pub use module_loader::{LoadedPackage, ModuleLoadReport, RejectedPackage, load_modules};
 pub use nyarix_graph::FlowGraph;
 pub use nyarix_module_api::{Event, EventBus, EventFilter, EventKind};
+pub use pause::{GraphPauseHandle, GraphPauseWatcher};
 pub use priority::{PriorityReceiver, PrioritySender, TaskPriority, priority_queue};
 pub use runtime_metrics::{record_graph_depth, record_module_load_report, record_uptime};
 pub use sandbox::{catch_module_panic, catch_panic};
