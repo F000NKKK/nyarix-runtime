@@ -160,7 +160,9 @@ mod tests {
         let ctx = RuntimeContext::empty();
         let module: Box<dyn Module> = Box::new(StubModule::requiring(vec![Capability::Network]));
 
-        let err = enforce_and_instantiate(module, &ctx).unwrap_err();
+        let Err(err) = enforce_and_instantiate(module, &ctx) else {
+            panic!("expected enforce_and_instantiate to fail");
+        };
 
         let EnforcementError::CapabilityDenied(SecurityError::CapabilityDenied {
             module,
@@ -191,7 +193,9 @@ mod tests {
             Capability::Tun,
         ]));
 
-        let err = enforce_and_instantiate(module, &ctx).unwrap_err();
+        let Err(err) = enforce_and_instantiate(module, &ctx) else {
+            panic!("expected enforce_and_instantiate to fail");
+        };
 
         assert!(matches!(
             err,
