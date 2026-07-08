@@ -6,6 +6,21 @@
 //! way. Parallel fan-out (#33), async decoupling via the edge queues
 //! (#34), and backpressure (#35) are separate, later pieces of the
 //! execution engine — this is deliberately the simplest possible runner.
+//!
+//! **Scope note (#77 CPU limits):** `record_and_check_processing_time`
+//! only *detects* a node overrunning its declared
+//! [`nyarix_module_api::ResourceLimits::max_processing_time`] — after
+//! `Module::process` already returned. #77 also asks for actually
+//! *interrupting* a long-running call and a cooperative
+//! `tokio::task::yield_now` model, neither of which fits
+//! `Module::process`'s current signature: it's a plain synchronous
+//! `fn`, not `async`, so it never yields and can't be cancelled
+//! mid-call without running it on its own thread/process and abandoning
+//! (not killing) that thread on timeout — the same per-module isolation
+//! gap #76/#116 hit for memory. Tracked separately (#117) rather than
+//! guessed at here.
+
+use std::time::{Duration, Instant};
 
 use nyarix_core::NodeId;
 use nyarix_error::{GraphError, ModuleError};
@@ -49,6 +64,45 @@ fn check_payload_limit(node: &GraphNode, packet: &Packet) -> Result<(), Executio
     Ok(())
 }
 
+/// Record how long a `Module::process` call actually took (#77's
+/// "Статистика: сколько CPU потребил модуль" — logged via `tracing`
+/// since the real metric registry, #82, doesn't exist yet; once it
+/// does, this is where a per-node duration metric should be recorded
+/// instead of/alongside the log line), and reject the node's result if
+/// it exceeded [`nyarix_module_api::ResourceLimits::max_processing_time`]
+/// (#77's "CPU time budget на модуль").
+///
+/// This can only detect an overrun *after* `process` already returned —
+/// see this module's own scope note on why actually cutting off a
+/// still-running synchronous call isn't implemented.
+fn record_and_check_processing_time(
+    node: &GraphNode,
+    elapsed: Duration,
+) -> Result<(), ExecutionError> {
+    let metadata = node.module().metadata();
+    tracing::debug!(
+        node = %metadata.name,
+        elapsed_ms = elapsed.as_millis(),
+        "node process() duration"
+    );
+    let Some(max) = metadata.resource_limits.max_processing_time else {
+        return Ok(());
+    };
+    if elapsed > max {
+        tracing::warn!(
+            node = %metadata.name,
+            elapsed_ms = elapsed.as_millis(),
+            budget_ms = max.as_millis(),
+            "node exceeded its CPU time budget"
+        );
+        return Err(ExecutionError::Module(ModuleError::QuotaExceeded {
+            name: metadata.name.clone(),
+            resource: "processing_time".to_string(),
+        }));
+    }
+    Ok(())
+}
+
 /// Run a packet through the graph starting at `entry`, following
 /// [`FlowGraph`] adjacency one hop at a time.
 ///
@@ -84,7 +138,10 @@ pub fn execute_sequential(
             })?;
 
         check_payload_limit(node, &packet)?;
-        packet = match node.process(packet)? {
+        let started = Instant::now();
+        let outcome = node.process(packet);
+        record_and_check_processing_time(node, started.elapsed())?;
+        packet = match outcome? {
             Some(packet) => packet,
             None => return Ok(None),
         };
@@ -131,7 +188,10 @@ async fn walk_node(
         })?;
 
     check_payload_limit(node, &packet)?;
-    let processed = match node.process(packet)? {
+    let started = Instant::now();
+    let outcome = node.process(packet);
+    record_and_check_processing_time(node, started.elapsed())?;
+    let processed = match outcome? {
         Some(packet) => packet,
         None => return Ok(WalkStep::Absorbed),
     };
@@ -271,6 +331,7 @@ mod tests {
         metadata: ModuleMetadata,
         node_type: NodeType,
         absorb: bool,
+        sleep_millis: u64,
     }
 
     impl StubNode {
@@ -283,6 +344,7 @@ mod tests {
                 ),
                 node_type,
                 absorb: false,
+                sleep_millis: 0,
             }
         }
 
@@ -304,6 +366,27 @@ mod tests {
                 metadata,
                 node_type,
                 absorb: false,
+                sleep_millis: 0,
+            }
+        }
+
+        fn with_processing_budget(
+            name: &str,
+            node_type: NodeType,
+            budget_ms: u64,
+            sleep_millis: u64,
+        ) -> Self {
+            let metadata =
+                ModuleMetadata::new(name, semver::Version::new(0, 1, 0), ModuleType::Flow)
+                    .with_resource_limits(nyarix_module_api::ResourceLimits {
+                        max_processing_time: Some(Duration::from_millis(budget_ms)),
+                        ..nyarix_module_api::ResourceLimits::unbounded()
+                    });
+            Self {
+                metadata,
+                node_type,
+                absorb: false,
+                sleep_millis,
             }
         }
     }
@@ -318,6 +401,9 @@ mod tests {
         }
 
         fn process(&mut self, packet: Packet) -> Result<Option<Packet>, ModuleError> {
+            if self.sleep_millis > 0 {
+                std::thread::sleep(Duration::from_millis(self.sleep_millis));
+            }
             if self.absorb {
                 Ok(None)
             } else {
@@ -465,6 +551,48 @@ mod tests {
         graph.add_node(a);
 
         let pkt = Packet::new(b"ok".as_slice());
+        let id = pkt.id();
+        let result = execute_sequential(&mut graph, a_id, pkt).unwrap();
+        assert_eq!(result.unwrap().id(), id);
+    }
+
+    #[test]
+    fn a_node_that_overruns_its_processing_budget_is_reported_as_quota_exceeded() {
+        let mut graph = FlowGraph::new();
+        let a = node(StubNode::with_processing_budget(
+            "slow",
+            NodeType::Source,
+            1,
+            50,
+        ));
+        let a_id = a.id();
+        graph.mark_exit_point(a_id);
+        graph.add_node(a);
+
+        let result = execute_sequential(&mut graph, a_id, Packet::new(b"data".as_slice()));
+
+        let Err(ExecutionError::Module(ModuleError::QuotaExceeded { name, resource })) = result
+        else {
+            panic!("expected QuotaExceeded");
+        };
+        assert_eq!(name, "slow");
+        assert_eq!(resource, "processing_time");
+    }
+
+    #[test]
+    fn a_node_within_its_processing_budget_is_not_rejected() {
+        let mut graph = FlowGraph::new();
+        let a = node(StubNode::with_processing_budget(
+            "fast",
+            NodeType::Source,
+            500,
+            0,
+        ));
+        let a_id = a.id();
+        graph.mark_exit_point(a_id);
+        graph.add_node(a);
+
+        let pkt = Packet::new(b"data".as_slice());
         let id = pkt.id();
         let result = execute_sequential(&mut graph, a_id, pkt).unwrap();
         assert_eq!(result.unwrap().id(), id);
