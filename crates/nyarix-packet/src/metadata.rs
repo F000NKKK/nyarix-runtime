@@ -83,6 +83,22 @@ pub struct Metadata {
     pub capability_mask: u64,
 }
 
+/// Milliseconds between two instants — `later - earlier`, saturating at
+/// zero if `earlier` is actually later, and clamped to `u64::MAX` rather
+/// than overflowing. Shared by [`created_at_millis`] and
+/// [`deadline_millis`]'s serde helpers below: both encode an `Instant`
+/// as a relative millisecond offset, just in opposite temporal
+/// directions (a creation time is in the past relative to "now"; a
+/// deadline is in the future), so this is the one piece of arithmetic
+/// both actually share — the surrounding (de)serialization shape
+/// (`Instant` vs `Option<Instant>`, subtract-from-now vs add-to-now on
+/// the way back) differs enough that unifying further would need a
+/// direction parameter threaded through, not a clear win over two thin
+/// modules.
+fn millis_between(later: Instant, earlier: Instant) -> u64 {
+    u64::try_from(later.saturating_duration_since(earlier).as_millis()).unwrap_or(u64::MAX)
+}
+
 /// Serde helper: encodes `Instant` as "milliseconds ago" (#84).
 ///
 /// On serialize, stores how long ago `created_at` was; on deserialize,
@@ -94,14 +110,13 @@ mod created_at_millis {
 
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+    use super::millis_between;
+
     pub(super) fn serialize<S: Serializer>(
         value: &Instant,
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
-        let now = Instant::now();
-        let ms_ago =
-            u64::try_from(now.saturating_duration_since(*value).as_millis()).unwrap_or(u64::MAX);
-        ms_ago.serialize(serializer)
+        millis_between(Instant::now(), *value).serialize(serializer)
     }
 
     pub(super) fn deserialize<'de, D: Deserializer<'de>>(
@@ -118,14 +133,13 @@ mod deadline_millis {
 
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+    use super::millis_between;
+
     pub(super) fn serialize<S: Serializer>(
         value: &Option<Instant>,
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
-        let millis_from_now = value.map(|deadline| {
-            let now = Instant::now();
-            u64::try_from(deadline.saturating_duration_since(now).as_millis()).unwrap_or(u64::MAX)
-        });
+        let millis_from_now = value.map(|deadline| millis_between(deadline, Instant::now()));
         millis_from_now.serialize(serializer)
     }
 
