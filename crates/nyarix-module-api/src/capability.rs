@@ -247,8 +247,7 @@ mod tests {
 
     #[test]
     fn a_request_fully_within_the_granted_mask_is_fully_granted() {
-        let granted =
-            CapabilityMask::from_capabilities(&[Capability::Network, Capability::Crypto]);
+        let granted = CapabilityMask::from_capabilities(&[Capability::Network, Capability::Crypto]);
         let request = CapabilityGrant::request(&[Capability::Network], granted);
 
         assert!(request.is_fully_granted());
@@ -259,8 +258,7 @@ mod tests {
     #[test]
     fn a_request_beyond_the_granted_mask_lists_what_was_denied() {
         let granted = CapabilityMask::from_capabilities(&[Capability::Network]);
-        let request =
-            CapabilityGrant::request(&[Capability::Network, Capability::Tun], granted);
+        let request = CapabilityGrant::request(&[Capability::Network, Capability::Tun], granted);
 
         assert!(!request.is_fully_granted());
         assert!(request.has(Capability::Network));
@@ -272,8 +270,7 @@ mod tests {
     fn granted_mask_never_exceeds_what_was_requested() {
         // Granted has Crypto too, but it wasn't requested, so it
         // shouldn't show up in the resulting grant.
-        let granted =
-            CapabilityMask::from_capabilities(&[Capability::Network, Capability::Crypto]);
+        let granted = CapabilityMask::from_capabilities(&[Capability::Network, Capability::Crypto]);
         let request = CapabilityGrant::request(&[Capability::Network], granted);
 
         assert_eq!(
