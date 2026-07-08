@@ -75,6 +75,21 @@ pub struct Metadata {
     pub origin_module: Option<ModuleId>,
     /// Hop-by-hop trace of node IDs (optional, for debugging).
     pub trace: Vec<NodeId>,
+    /// Whether this packet's path is actively being traced (#87) — a
+    /// sampling decision made once (typically at creation, e.g. by a
+    /// sampling rate), not re-decided per hop. `false` by default, so
+    /// tracing costs nothing for packets that don't opt in — this is
+    /// #87's "Sampling: не каждый пакет, чтобы не замедлять".
+    pub traced: bool,
+    /// Whether [`Self::record_hop`] should also capture a timestamp per
+    /// hop (#87's "Опциональный детальный режим: timestamps per hop")
+    /// — only meaningful when [`Self::traced`] is `true`.
+    pub trace_detailed: bool,
+    /// Elapsed milliseconds since [`Self::created_at`] at each hop
+    /// recorded via [`Self::record_hop`] — parallel to [`Self::trace`]
+    /// (same length and order), populated only when
+    /// [`Self::trace_detailed`].
+    pub trace_timestamps_ms: Vec<u64>,
 
     // ── Security / Privacy ───────────────────────────
     /// Privacy policy hint for obfuscation/padding nodes.
@@ -213,6 +228,9 @@ impl Metadata {
             retry_count: 0,
             origin_module: None,
             trace: Vec::new(),
+            traced: false,
+            trace_detailed: false,
+            trace_timestamps_ms: Vec::new(),
             privacy_policy: PrivacyPolicy::default(),
             capability_mask: 0,
         }
@@ -242,9 +260,58 @@ impl Metadata {
         self
     }
 
-    /// Add a node to the trace.
+    /// Add a node to the trace unconditionally — the low-level
+    /// primitive; prefer [`Self::record_hop`] for actual execution-path
+    /// tracing (#87), which respects [`Self::traced`]/sampling.
     pub fn trace_push(&mut self, node: NodeId) {
         self.trace.push(node);
+    }
+
+    /// Opt this packet into tracing (#87) — the execution engine calls
+    /// [`Self::record_hop`] unconditionally on every hop, but it's a
+    /// no-op unless this was called first, so most packets pay nothing
+    /// (this issue's "Sampling: не каждый пакет"). `detailed` also
+    /// captures a timestamp per hop.
+    #[must_use]
+    pub fn with_tracing(mut self, detailed: bool) -> Self {
+        self.traced = true;
+        self.trace_detailed = detailed;
+        self
+    }
+
+    /// Record one hop for tracing (#87) if [`Self::traced`] — a no-op
+    /// otherwise, so callers (the execution engine) can call this on
+    /// every hop without checking `traced` themselves first.
+    ///
+    /// If [`Self::trace_detailed`], also appends the elapsed
+    /// milliseconds since [`Self::created_at`] to
+    /// [`Self::trace_timestamps_ms`].
+    pub fn record_hop(&mut self, node: NodeId) {
+        if !self.traced {
+            return;
+        }
+        self.trace.push(node);
+        if self.trace_detailed {
+            let elapsed_ms =
+                u64::try_from(self.created_at.elapsed().as_millis()).unwrap_or(u64::MAX);
+            self.trace_timestamps_ms.push(elapsed_ms);
+        }
+    }
+
+    /// Pair each traced hop with its timestamp, if detailed timing was
+    /// recorded (#87's "Экспорт трассы для диагностики") — `None` per
+    /// hop when [`Self::trace_detailed`] wasn't set, same length as
+    /// [`Self::trace`] either way.
+    #[must_use]
+    pub fn trace_summary(&self) -> Vec<TraceHop> {
+        self.trace
+            .iter()
+            .enumerate()
+            .map(|(i, &node)| TraceHop {
+                node,
+                elapsed_ms: self.trace_timestamps_ms.get(i).copied(),
+            })
+            .collect()
     }
 
     /// Reset TTL to default.
