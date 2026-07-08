@@ -410,7 +410,7 @@ mod tests {
         );
         // Check the rest of metadata excluding created_at.
         let mut decoded_meta = decoded.metadata().clone();
-        let mut pkt_meta = pkt.metadata().clone();
+        let pkt_meta = pkt.metadata().clone();
         decoded_meta.created_at = pkt_meta.created_at;
         assert_eq!(decoded_meta, pkt_meta);
     }
