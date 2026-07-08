@@ -12,12 +12,15 @@
 //! the Scheduler's priority model and queue primitive.
 //! [`module_loader::load_modules`] (#41) scans and validates `.nyp`
 //! packages (M5/M6, #50-#66) — everything up to but not including
-//! actually instantiating a module, which needs #107. The rest
-//! (dependency resolver wiring into the graph, metrics) are still their
-//! own later milestone issues.
+//! actually instantiating a module, which needs #107.
+//! [`graph_builder::build_from_profile`] (#42) builds a [`FlowGraph`]
+//! from a profile's module stack, given a name→node lookup (see that
+//! module's scope note). The rest (dependency resolver wiring into the
+//! graph, metrics) are still their own later milestone issues.
 
 pub mod cpu_pool;
 pub mod execution_loop;
+pub mod graph_builder;
 pub mod init;
 pub mod io_pool;
 pub mod module_loader;
@@ -26,12 +29,14 @@ pub mod shutdown;
 
 pub use cpu_pool::CpuPool;
 pub use execution_loop::{
-    DEFAULT_SHUTDOWN_TIMEOUT, ExecutionLoopError, initialize_all_nodes, run, run_with_timeout,
-    shutdown_all_nodes,
+    initialize_all_nodes, run, run_with_timeout, shutdown_all_nodes, ExecutionLoopError,
+    DEFAULT_SHUTDOWN_TIMEOUT,
 };
+pub use graph_builder::{build_from_profile, BuildError};
 pub use init::{RuntimeHandle, RuntimeInitError};
 pub use io_pool::IoPool;
-pub use module_loader::{LoadedPackage, ModuleLoadReport, RejectedPackage, load_modules};
+pub use module_loader::{load_modules, LoadedPackage, ModuleLoadReport, RejectedPackage};
+pub use nyarix_graph::FlowGraph;
 pub use nyarix_module_api::{Event, EventBus, EventFilter, EventKind};
-pub use priority::{PriorityReceiver, PrioritySender, TaskPriority, priority_queue};
+pub use priority::{priority_queue, PriorityReceiver, PrioritySender, TaskPriority};
 pub use shutdown::cancel_on_ctrl_c;
