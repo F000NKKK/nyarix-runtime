@@ -5,10 +5,13 @@
 //! etc.). [`GraphNode`] (#27), [`Edge`] (#28), and [`FlowGraph`] (#29) are
 //! the storage layer; validation (#30/#31) checks it; [`execute_sequential`]
 //! (#32) is the first (linear-only) execution engine.
+//! [`export::export_graph`] (#86) snapshots a [`FlowGraph`]'s current
+//! shape as DOT/JSON, for visualization.
 
 pub mod condition;
 pub mod edge;
 pub mod execution;
+pub mod export;
 pub mod graph;
 pub mod metrics;
 pub mod node;
@@ -18,6 +21,7 @@ pub mod throughput;
 pub use condition::Condition;
 pub use edge::{Edge, EdgeType};
 pub use execution::{ExecutionError, execute_parallel, execute_sequential};
+pub use export::{EdgeExport, GraphExport, NodeExport, NodeMetricsExport, export_graph};
 pub use graph::FlowGraph;
 pub use metrics::NodeMetrics;
 pub use node::{GraphNode, NodeConfig, NodeState};
