@@ -172,14 +172,14 @@ pub async fn run_with_timeout(
             },
         };
 
-        if !process_one(&graph, entry, packet, &sink).await {
+        if !process_one(&graph, entry, packet, &sink, ctx.metrics().registry()).await {
             break;
         }
     }
 
     let drain_outcome = tokio::time::timeout(shutdown_timeout, async {
         while let Ok(packet) = source.try_recv() {
-            if !process_one(&graph, entry, packet, &sink).await {
+            if !process_one(&graph, entry, packet, &sink, ctx.metrics().registry()).await {
                 break;
             }
         }
@@ -209,6 +209,7 @@ async fn process_one(
     entry: NodeId,
     packet: Packet,
     sink: &mpsc::Sender<Packet>,
+    metrics: Option<&nyarix_module_api::MetricRegistry>,
 ) -> bool {
     let result = {
         let mut guard = graph.lock().await;
@@ -217,7 +218,7 @@ async fn process_one(
         // contains one during `initialize` — logged and treated as this
         // packet failing, not as the whole loop unwinding.
         crate::sandbox::catch_panic(move || {
-            nyarix_graph::execute_sequential(&mut guard, entry, packet)
+            nyarix_graph::execute_sequential(&mut guard, entry, packet, metrics)
         })
     };
 

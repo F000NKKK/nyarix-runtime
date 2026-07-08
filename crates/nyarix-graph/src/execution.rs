@@ -525,7 +525,7 @@ mod tests {
         let pkt = Packet::new(b"hello".as_slice());
         let id = pkt.id();
 
-        let result = execute_sequential(&mut graph, a_id, pkt).unwrap();
+        let result = execute_sequential(&mut graph, a_id, pkt, None).unwrap();
         assert_eq!(result.unwrap().id(), id);
     }
 
@@ -545,7 +545,7 @@ mod tests {
         graph.connect(ab).unwrap();
         graph.connect(bc).unwrap();
 
-        let result = execute_sequential(&mut graph, a_id, Packet::new(b"data".as_slice())).unwrap();
+        let result = execute_sequential(&mut graph, a_id, Packet::new(b"data".as_slice()), None).unwrap();
         assert!(result.is_none());
     }
 
@@ -562,7 +562,7 @@ mod tests {
         graph.connect(ab).unwrap();
         // `b` has no outgoing edge and isn't an exit point.
 
-        let result = execute_sequential(&mut graph, a_id, Packet::new(b"data".as_slice()));
+        let result = execute_sequential(&mut graph, a_id, Packet::new(b"data".as_slice()), None);
         assert!(matches!(
             result,
             Err(ExecutionError::Graph(GraphError::BuildFailed { .. }))
@@ -576,7 +576,7 @@ mod tests {
         let a_id = a.id();
         graph.add_node(a);
 
-        let result = execute_sequential(&mut graph, a_id, Packet::new(b"data".as_slice()));
+        let result = execute_sequential(&mut graph, a_id, Packet::new(b"data".as_slice()), None);
         assert!(matches!(
             result,
             Err(ExecutionError::Graph(GraphError::MissingNode { .. }))
@@ -595,7 +595,7 @@ mod tests {
         graph.mark_exit_point(a_id);
         graph.add_node(a);
 
-        let result = execute_sequential(&mut graph, a_id, Packet::new(b"way too big".as_slice()));
+        let result = execute_sequential(&mut graph, a_id, Packet::new(b"way too big".as_slice()), None);
 
         let Err(ExecutionError::Module(ModuleError::QuotaExceeded { name, resource })) = result
         else {
@@ -619,7 +619,7 @@ mod tests {
 
         let pkt = Packet::new(b"ok".as_slice());
         let id = pkt.id();
-        let result = execute_sequential(&mut graph, a_id, pkt).unwrap();
+        let result = execute_sequential(&mut graph, a_id, pkt, None).unwrap();
         assert_eq!(result.unwrap().id(), id);
     }
 
@@ -636,7 +636,7 @@ mod tests {
         graph.mark_exit_point(a_id);
         graph.add_node(a);
 
-        let result = execute_sequential(&mut graph, a_id, Packet::new(b"data".as_slice()));
+        let result = execute_sequential(&mut graph, a_id, Packet::new(b"data".as_slice()), None);
 
         let Err(ExecutionError::Module(ModuleError::QuotaExceeded { name, resource })) = result
         else {
@@ -661,7 +661,7 @@ mod tests {
 
         let pkt = Packet::new(b"data".as_slice());
         let id = pkt.id();
-        let result = execute_sequential(&mut graph, a_id, pkt).unwrap();
+        let result = execute_sequential(&mut graph, a_id, pkt, None).unwrap();
         assert_eq!(result.unwrap().id(), id);
     }
 
@@ -699,7 +699,7 @@ mod tests {
         graph.connect(e3).unwrap();
         graph.connect(e4).unwrap();
 
-        let results = execute_parallel(shared(graph), src, Packet::new(b"data".as_slice()), 4)
+        let results = execute_parallel(shared(graph), src, Packet::new(b"data".as_slice()), 4, None)
             .await
             .unwrap();
         assert_eq!(results.len(), 2);
@@ -725,7 +725,7 @@ mod tests {
         graph.connect(e2).unwrap();
         graph.connect(e3).unwrap();
 
-        let results = execute_parallel(shared(graph), src, Packet::new(b"data".as_slice()), 4)
+        let results = execute_parallel(shared(graph), src, Packet::new(b"data".as_slice()), 4, None)
             .await
             .unwrap();
         // Only the surviving branch contributes a result.
@@ -749,7 +749,7 @@ mod tests {
         graph.connect(e2).unwrap();
 
         // max_concurrent_branches = 0 must not deadlock; it's clamped to 1.
-        let results = execute_parallel(shared(graph), src, Packet::new(b"data".as_slice()), 0)
+        let results = execute_parallel(shared(graph), src, Packet::new(b"data".as_slice()), 0, None)
             .await
             .unwrap();
         assert_eq!(results.len(), 2);
@@ -763,7 +763,7 @@ mod tests {
         graph.add_node(a);
 
         let result =
-            execute_parallel(shared(graph), a_id, Packet::new(b"data".as_slice()), 4).await;
+            execute_parallel(shared(graph), a_id, Packet::new(b"data".as_slice()), 4, None).await;
         assert!(matches!(
             result,
             Err(ExecutionError::Graph(GraphError::MissingNode { .. }))
