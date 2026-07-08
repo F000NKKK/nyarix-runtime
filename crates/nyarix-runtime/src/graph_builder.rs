@@ -107,7 +107,11 @@ mod tests {
     impl StubModule {
         fn new(name: &str) -> Arc<dyn Node> {
             Arc::new(Self {
-                metadata: ModuleMetadata::new(name, semver::Version::new(0, 1, 0), ModuleType::Flow),
+                metadata: ModuleMetadata::new(
+                    name,
+                    semver::Version::new(0, 1, 0),
+                    ModuleType::Flow,
+                ),
             })
         }
     }
