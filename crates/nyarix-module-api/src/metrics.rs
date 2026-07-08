@@ -254,14 +254,18 @@ impl MetricsHandle {
     /// handle has no registry attached.
     #[must_use]
     pub fn counter(&self, module: &str, name: &str) -> Option<Arc<Counter>> {
-        self.registry.as_ref().map(|registry| registry.counter(module, name))
+        self.registry
+            .as_ref()
+            .map(|registry| registry.counter(module, name))
     }
 
     /// The gauge named `name` under `module`, or `None` if this handle
     /// has no registry attached.
     #[must_use]
     pub fn gauge(&self, module: &str, name: &str) -> Option<Arc<Gauge>> {
-        self.registry.as_ref().map(|registry| registry.gauge(module, name))
+        self.registry
+            .as_ref()
+            .map(|registry| registry.gauge(module, name))
     }
 
     /// The histogram named `name` under `module` (registering it with
