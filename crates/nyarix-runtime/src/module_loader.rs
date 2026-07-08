@@ -25,7 +25,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use nyarix_error::PackageError;
-use nyarix_loader::{scan_directories, validate_package, ScanError, ValidationReport};
+use nyarix_loader::{ScanError, ValidationReport, scan_directories, validate_package};
 use nyarix_module_api::ApiVersion;
 use nyarix_package::{PackageReader, TrustStore};
 
@@ -161,9 +161,9 @@ pub fn load_modules(
 fn conflict_involves(conflict: &nyarix_loader::Conflict, name: &str) -> bool {
     use nyarix_loader::Conflict;
     match conflict {
-        Conflict::IncompatibleVersions { requirements, .. } => {
-            requirements.iter().any(|requirement| requirement.requirer == name)
-        }
+        Conflict::IncompatibleVersions { requirements, .. } => requirements
+            .iter()
+            .any(|requirement| requirement.requirer == name),
         Conflict::MissingDependency { requirers, .. } => {
             requirers.iter().any(|requirer| requirer == name)
         }

@@ -211,11 +211,11 @@ impl PackageReader {
         let entries = self.entries()?;
         let signature_bytes = entries
             .iter()
-            .find(|(path, _)| path == signing::SIGNATURE_MEMBER_PATH)
+            .find(|(path, _)| path == SIGNATURE_MEMBER_PATH)
             .map(|(_, contents)| contents);
         let public_key_bytes = entries
             .iter()
-            .find(|(path, _)| path == signing::PUBLIC_KEY_MEMBER_PATH)
+            .find(|(path, _)| path == PUBLIC_KEY_MEMBER_PATH)
             .map(|(_, contents)| contents);
 
         let (Some(signature_bytes), Some(public_key_bytes)) = (signature_bytes, public_key_bytes)
