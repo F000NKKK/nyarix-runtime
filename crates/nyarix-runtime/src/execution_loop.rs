@@ -16,9 +16,14 @@
 //!
 //! Also not implemented here: fan-out via
 //! [`nyarix_graph::execute_parallel`] (#33) — this loop only drives
-//! `execute_sequential`; graph mutation mid-run (#37/#38/#39, blocked on
-//! #98); and the CPU/I/O worker-pool split (#45/#46) — this is a single
-//! async task, not yet backed by dedicated thread pools.
+//! `execute_sequential`; and the CPU/I/O worker-pool split (#45/#46) —
+//! this is a single async task, not yet backed by dedicated thread pools.
+//!
+//! Graph mutation mid-run (#37/#38/#39) is coordinated via
+//! [`crate::pause::GraphPauseHandle`]/[`crate::pause::GraphPauseWatcher`]
+//! (#98): while paused, this loop stops calling `source.recv()` again,
+//! so no new packet starts a fresh trip through the graph until resumed.
+//! See that module's docs for what this guarantee does and doesn't cover.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -31,6 +36,8 @@ use nyarix_packet::Packet;
 use thiserror::Error;
 use tokio::sync::{Mutex, mpsc};
 use tokio_util::sync::CancellationToken;
+
+use crate::pause::GraphPauseWatcher;
 
 /// Default bound on how long graceful shutdown (draining + node
 /// `shutdown()` calls) is allowed to take before [`run`] gives up waiting
@@ -123,6 +130,7 @@ pub async fn run(
     source: mpsc::Receiver<Packet>,
     sink: mpsc::Sender<Packet>,
     shutdown: CancellationToken,
+    pause: GraphPauseWatcher,
 ) -> Result<(), ExecutionLoopError> {
     run_with_timeout(
         graph,
@@ -132,6 +140,7 @@ pub async fn run(
         sink,
         shutdown,
         DEFAULT_SHUTDOWN_TIMEOUT,
+        pause,
     )
     .await
 }
@@ -155,9 +164,17 @@ pub async fn run(
 /// abandoned (logged via `tracing`) and `run` returns anyway — forced
 /// completion, per the issue's "таймаут на принудительное завершение".
 ///
+/// While `pause` reports paused (see [`crate::pause::GraphPauseHandle`],
+/// #98), the loop stops calling `source.recv()` again — whoever is
+/// mutating the graph's topology is responsible for pausing before
+/// calling `insert_after`/`remove_and_reconnect`/`swap_node` and
+/// resuming afterward; see that module's docs for exactly what guarantee
+/// this does and doesn't provide.
+///
 /// **Not implemented**: draining a node's own `NodeQueue` (#36) lanes —
 /// only `source` (the entry point's inbound channel) is drained here;
-/// see #97 for why `NodeQueue` isn't wired into execution at all yet.
+/// see #97 for the queue itself and #98 for why full drain-on-pause
+/// (vs. drain-on-shutdown, which this already does) isn't wired up yet.
 ///
 /// # Errors
 /// Returns [`ExecutionLoopError::Initialize`] if any node fails to
@@ -173,13 +190,17 @@ pub async fn run_with_timeout(
     sink: mpsc::Sender<Packet>,
     shutdown: CancellationToken,
     shutdown_timeout: Duration,
+    mut pause: GraphPauseWatcher,
 ) -> Result<(), ExecutionLoopError> {
     initialize_all_nodes(&graph, &ctx).await?;
 
     loop {
+        pause.wait_until_resumed().await;
+
         let packet = tokio::select! {
             biased;
             () = shutdown.cancelled() => break,
+            () = pause.wait_until_paused() => continue,
             received = source.recv() => match received {
                 Some(packet) => packet,
                 None => break,
