@@ -449,7 +449,10 @@ mod tests {
         let ctx = RuntimeContext::empty().with_granted_capabilities(mask);
         let metadata = support::new_metadata("quic-transport");
 
-        assert!(ctx.request_capability(&metadata, Capability::Network).is_ok());
+        assert!(
+            ctx.request_capability(&metadata, Capability::Network)
+                .is_ok()
+        );
     }
 
     #[test]
