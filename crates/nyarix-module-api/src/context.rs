@@ -819,6 +819,27 @@ mod tests {
     }
 
     #[test]
+    fn metrics_are_a_silent_no_op_without_a_registry_attached() {
+        let ctx = RuntimeContext::empty();
+        assert!(ctx.metrics().counter("quic", "packets_sent").is_none());
+    }
+
+    #[test]
+    fn with_metrics_registry_attaches_a_working_handle() {
+        use crate::metrics::MetricRegistry;
+
+        let registry = Arc::new(MetricRegistry::new());
+        let ctx = RuntimeContext::empty().with_metrics_registry(Arc::clone(&registry));
+
+        ctx.metrics()
+            .counter("quic", "packets_sent")
+            .unwrap()
+            .increment(1);
+
+        assert_eq!(registry.counter("quic", "packets_sent").value(), 1);
+    }
+
+    #[test]
     fn check_dns_resolve_denies_without_the_dns_capability() {
         let ctx = RuntimeContext::empty()
             .with_network_policy(NetworkPolicy::deny_all().allow_host("example.com"));
