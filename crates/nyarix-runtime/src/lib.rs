@@ -21,8 +21,13 @@
 //! note on why the actual re-instantiation still needs #107).
 //! [`capability_enforcement::enforce_and_instantiate`] (#73) refuses to
 //! instantiate a module that didn't get every capability it required
-//! (#70). The rest (dependency resolver wiring into the graph, metrics)
-//! are still their own later milestone issues.
+//! (#70). [`sandbox::catch_module_panic`] (#75) turns a module panic
+//! into an ordinary [`nyarix_error::ModuleError::Crashed`] instead of
+//! letting it unwind into the Runtime — used by both
+//! `enforce_and_instantiate` (around `initialize`) and
+//! `execution_loop::process_one` (around `process`). The rest
+//! (dependency resolver wiring into the graph, metrics) are still their
+//! own later milestone issues.
 
 pub mod capability_enforcement;
 pub mod cpu_pool;
@@ -32,6 +37,7 @@ pub mod init;
 pub mod io_pool;
 pub mod module_loader;
 pub mod priority;
+pub mod sandbox;
 pub mod shutdown;
 pub mod version_switch;
 
@@ -48,5 +54,6 @@ pub use module_loader::{LoadedPackage, ModuleLoadReport, RejectedPackage, load_m
 pub use nyarix_graph::FlowGraph;
 pub use nyarix_module_api::{Event, EventBus, EventFilter, EventKind};
 pub use priority::{PriorityReceiver, PrioritySender, TaskPriority, priority_queue};
+pub use sandbox::{catch_module_panic, catch_panic};
 pub use shutdown::cancel_on_ctrl_c;
 pub use version_switch::{SwitchOutcome, VersionSwitchError, switch_version, version_is_cached};

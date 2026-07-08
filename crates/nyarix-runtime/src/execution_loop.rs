@@ -212,19 +212,28 @@ async fn process_one(
 ) -> bool {
     let result = {
         let mut guard = graph.lock().await;
-        nyarix_graph::execute_sequential(&mut guard, entry, packet)
+        // #75's "Перехват паники (catch_unwind)": a node panicking mid-`process`
+        // is contained here the same way `capability_enforcement::enforce_and_instantiate`
+        // contains one during `initialize` — logged and treated as this
+        // packet failing, not as the whole loop unwinding.
+        crate::sandbox::catch_panic(move || {
+            nyarix_graph::execute_sequential(&mut guard, entry, packet)
+        })
     };
 
     match result {
-        Ok(Some(output)) => {
+        Ok(Ok(Some(output))) => {
             if sink.send(output).await.is_err() {
                 tracing::warn!("execution loop sink closed; stopping");
                 return false;
             }
         }
-        Ok(None) => {}
-        Err(error) => {
+        Ok(Ok(None)) => {}
+        Ok(Err(error)) => {
             tracing::warn!(%error, "packet processing failed");
+        }
+        Err(reason) => {
+            tracing::warn!(reason = %reason, "node panicked while processing a packet");
         }
     }
     true
@@ -419,5 +428,88 @@ mod tests {
         }
         assert_eq!(received, vec![id1, id2]);
         assert_eq!(shut_down.load(Ordering::SeqCst), 2);
+    }
+
+    struct PanickingNode {
+        metadata: ModuleMetadata,
+    }
+
+    impl Module for PanickingNode {
+        fn metadata(&self) -> &ModuleMetadata {
+            &self.metadata
+        }
+
+        fn initialize(&mut self, _ctx: &RuntimeContext) -> Result<(), CoreModuleError> {
+            Ok(())
+        }
+
+        fn process(&mut self, _packet: Packet) -> Result<Option<Packet>, CoreModuleError> {
+            panic!("node panicked mid-process");
+        }
+
+        fn shutdown(&mut self, _ctx: &RuntimeContext) -> Result<(), CoreModuleError> {
+            Ok(())
+        }
+
+        fn health(&self) -> Health {
+            Health::Healthy
+        }
+    }
+
+    impl Node for PanickingNode {
+        fn node_type(&self) -> NodeType {
+            NodeType::Source
+        }
+
+        fn input_queue_depth(&self) -> usize {
+            0
+        }
+
+        fn output_connections(&self) -> &[NodeId] {
+            &[]
+        }
+    }
+
+    #[tokio::test]
+    async fn a_panicking_node_does_not_crash_the_loop_and_the_next_packet_still_gets_through() {
+        let mut graph = FlowGraph::new();
+        let node: Arc<dyn Node> = Arc::new(PanickingNode {
+            metadata: ModuleMetadata::new(
+                "panicky",
+                semver::Version::new(0, 1, 0),
+                ModuleType::Flow,
+            ),
+        });
+        let node = GraphNode::new(NodeId::new(), node, NodeConfig::default());
+        let entry = node.id();
+        graph.mark_exit_point(entry);
+        graph.add_node(node);
+
+        let graph = Arc::new(Mutex::new(graph));
+        let (source_tx, source_rx) = mpsc::channel(8);
+        let (sink_tx, mut sink_rx) = mpsc::channel(8);
+        let shutdown = CancellationToken::new();
+
+        let loop_handle = tokio::spawn(run(
+            graph,
+            entry,
+            RuntimeContext::empty(),
+            source_rx,
+            sink_tx,
+            shutdown.clone(),
+        ));
+
+        source_tx
+            .send(Packet::new(b"boom".as_slice()))
+            .await
+            .unwrap();
+        // Give the panicking packet a moment to be processed (and not
+        // received on the sink, since the node panicked instead of
+        // returning a packet) before proving the loop is still alive.
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert!(sink_rx.try_recv().is_err());
+
+        shutdown.cancel();
+        loop_handle.await.unwrap().unwrap();
     }
 }

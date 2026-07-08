@@ -14,11 +14,13 @@
 //! is simply never instantiated/registered, which is as isolated as a
 //! module can be (it never runs). Isolating an *already-running* module
 //! that violates its granted capabilities mid-execution (killing its
-//! task, `catch_unwind`, a separate Tokio runtime, ...) needs the real
-//! Sandbox execution boundary, tracked by #75 — nothing in this
-//! workspace runs a module in a boundary that could even detect a
-//! mid-execution violation yet, so there's nothing to isolate *from*
-//! beyond this load-time check.
+//! task, a separate Tokio runtime, ...) needs more of the real Sandbox
+//! execution boundary (#75) than exists yet — this function does reuse
+//! #75's [`crate::sandbox::catch_module_panic`] around `Module::initialize`
+//! itself (see [`enforce_and_instantiate`]'s docs), so a module that
+//! panics during initialization is contained the same way a module
+//! that panics during `process` is (`execution_loop::process_one`),
+//! rather than unwinding into the Runtime.
 
 use std::sync::Arc;
 
@@ -35,9 +37,10 @@ pub enum EnforcementError {
     /// what "denied" means here.
     #[error(transparent)]
     CapabilityDenied(#[from] SecurityError),
-    /// The capability check passed, but [`nyarix_loader::instantiate`]
-    /// itself failed (a `Module::initialize` error, unrelated to
-    /// capabilities).
+    /// The capability check passed, but instantiation itself failed —
+    /// either an ordinary `Module::initialize` error, or a panic during
+    /// it caught and converted by [`crate::sandbox::catch_module_panic`]
+    /// (#75) into [`nyarix_error::ModuleError::Crashed`].
     #[error(transparent)]
     Instantiation(#[from] InstantiationError),
 }
@@ -52,14 +55,19 @@ pub enum EnforcementError {
 /// [`SecurityError::CapabilityDenied`]'s single-`capability` shape),
 /// so an operator watching logs sees the full list, not just the first.
 ///
+/// If the capability check passes, `Module::initialize` (via
+/// [`nyarix_loader::instantiate`]) runs inside
+/// [`crate::sandbox::catch_module_panic`] (#75) — a panic during
+/// initialization is caught and reported as an ordinary error rather
+/// than unwinding into the Runtime.
+///
 /// # Errors
 /// Returns [`EnforcementError::CapabilityDenied`] (wrapping
 /// [`SecurityError::CapabilityDenied`], naming the first denied
 /// capability) if the grant is incomplete — `module` is not
 /// instantiated in that case, i.e. `Module::initialize` is never
 /// called. Returns [`EnforcementError::Instantiation`] if the
-/// capability check passed but [`nyarix_loader::instantiate`] itself
-/// failed.
+/// capability check passed but instantiation itself failed or panicked.
 pub fn enforce_and_instantiate(
     module: Box<dyn Module>,
     ctx: &RuntimeContext,
@@ -87,7 +95,11 @@ pub fn enforce_and_instantiate(
     }
 
     tracing::debug!(module = %name, "capability check passed");
-    Ok(nyarix_loader::instantiate(module, ctx)?)
+    let panic_guard_name = name.clone();
+    crate::sandbox::catch_module_panic(&panic_guard_name, move || {
+        nyarix_loader::instantiate(module, ctx).map_err(|error| error.source)
+    })
+    .map_err(|source| EnforcementError::Instantiation(InstantiationError { name, source }))
 }
 
 fn capability_name(capability: Capability) -> String {
@@ -199,5 +211,50 @@ mod tests {
             err,
             EnforcementError::CapabilityDenied(SecurityError::CapabilityDenied { .. })
         ));
+    }
+
+    struct PanickingModule {
+        metadata: ModuleMetadata,
+    }
+
+    impl Module for PanickingModule {
+        fn metadata(&self) -> &ModuleMetadata {
+            &self.metadata
+        }
+
+        fn initialize(&mut self, _ctx: &RuntimeContext) -> Result<(), ModuleError> {
+            panic!("boom");
+        }
+
+        fn process(&mut self, packet: Packet) -> Result<Option<Packet>, ModuleError> {
+            Ok(Some(packet))
+        }
+
+        fn shutdown(&mut self, _ctx: &RuntimeContext) -> Result<(), ModuleError> {
+            Ok(())
+        }
+
+        fn health(&self) -> Health {
+            Health::Healthy
+        }
+    }
+
+    #[test]
+    fn a_panic_during_initialize_is_caught_and_reported_as_crashed() {
+        let ctx = RuntimeContext::empty();
+        let module: Box<dyn Module> = Box::new(PanickingModule {
+            metadata: ModuleMetadata::new(
+                "panicky-transport",
+                semver::Version::new(0, 1, 0),
+                ModuleType::Transport,
+            ),
+        });
+
+        let Err(EnforcementError::Instantiation(err)) = enforce_and_instantiate(module, &ctx)
+        else {
+            panic!("expected EnforcementError::Instantiation");
+        };
+        assert_eq!(err.name, "panicky-transport");
+        assert!(matches!(err.source, ModuleError::Crashed { .. }));
     }
 }
