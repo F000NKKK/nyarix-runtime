@@ -379,6 +379,54 @@ mod tests {
     }
 
     #[test]
+    fn record_hop_is_a_no_op_without_tracing() {
+        let mut meta = Metadata::new();
+        meta.record_hop(NodeId::new());
+        assert!(meta.trace.is_empty());
+    }
+
+    #[test]
+    fn record_hop_appends_to_trace_when_traced() {
+        let mut meta = Metadata::new().with_tracing(false);
+        let a = NodeId::new();
+        let b = NodeId::new();
+        meta.record_hop(a);
+        meta.record_hop(b);
+        assert_eq!(meta.trace, vec![a, b]);
+        assert!(meta.trace_timestamps_ms.is_empty());
+    }
+
+    #[test]
+    fn record_hop_captures_timestamps_when_detailed() {
+        let mut meta = Metadata::new().with_tracing(true);
+        meta.record_hop(NodeId::new());
+        meta.record_hop(NodeId::new());
+        assert_eq!(meta.trace_timestamps_ms.len(), 2);
+    }
+
+    #[test]
+    fn trace_summary_pairs_hops_with_timestamps() {
+        let mut meta = Metadata::new().with_tracing(true);
+        let a = NodeId::new();
+        meta.record_hop(a);
+
+        let summary = meta.trace_summary();
+        assert_eq!(summary.len(), 1);
+        assert_eq!(summary[0].node, a);
+        assert!(summary[0].elapsed_ms.is_some());
+    }
+
+    #[test]
+    fn trace_summary_has_no_timestamps_without_detailed_mode() {
+        let mut meta = Metadata::new().with_tracing(false);
+        meta.record_hop(NodeId::new());
+
+        let summary = meta.trace_summary();
+        assert_eq!(summary.len(), 1);
+        assert_eq!(summary[0].elapsed_ms, None);
+    }
+
+    #[test]
     fn ttl_expiry() {
         let mut meta = Metadata::new();
         assert!(!meta.is_expired());
