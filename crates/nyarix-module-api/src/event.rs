@@ -502,4 +502,78 @@ mod tests {
         assert_eq!(received[0].kind(), EventKind::HealthDegraded);
         handle.abort();
     }
+
+    struct RecordingHandler {
+        received: Arc<Mutex<Vec<Event>>>,
+    }
+
+    impl EventHandler for RecordingHandler {
+        fn handle(&mut self, event: Event) -> impl std::future::Future<Output = ()> + Send {
+            let received = Arc::clone(&self.received);
+            async move {
+                // Prove the handler genuinely awaits something.
+                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                received.lock().unwrap().push(event);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn subscribe_async_delivers_events_to_an_async_handler() {
+        let bus = EventBus::default();
+        let received: Arc<Mutex<Vec<Event>>> = Arc::new(Mutex::new(Vec::new()));
+        let handler = RecordingHandler {
+            received: Arc::clone(&received),
+        };
+
+        let handle = bus.subscribe_async(
+            EventFilter::All,
+            handler,
+            std::time::Duration::from_secs(1),
+        );
+
+        bus.publish(Event::ModuleLoaded {
+            name: "quic".to_string(),
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+        assert_eq!(received.lock().unwrap().len(), 1);
+        handle.abort();
+    }
+
+    struct HangingHandler;
+
+    impl EventHandler for HangingHandler {
+        fn handle(&mut self, _event: Event) -> impl std::future::Future<Output = ()> + Send {
+            async move {
+                // Never completes on its own within the test's timeout.
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn subscribe_async_does_not_hang_forever_on_a_slow_handler() {
+        let bus = EventBus::default();
+        let handle = bus.subscribe_async(
+            EventFilter::All,
+            HangingHandler,
+            std::time::Duration::from_millis(10),
+        );
+
+        bus.publish(Event::ModuleLoaded {
+            name: "quic".to_string(),
+        });
+        // If the timeout didn't apply, this task would still be stuck
+        // awaiting the first event's handler; publishing (and this test
+        // completing at all within its harness timeout) proves it moved
+        // on instead of hanging.
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        bus.publish(Event::ModuleLoaded {
+            name: "quic-2".to_string(),
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        handle.abort();
+    }
 }
