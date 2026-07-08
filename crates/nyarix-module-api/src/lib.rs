@@ -20,7 +20,7 @@ pub mod resource_limits;
 pub mod sandbox;
 pub mod versioning;
 
-pub use capability::{Capability, CapabilityMask};
+pub use capability::{Capability, CapabilityGrant, CapabilityMask};
 pub use config::ModuleConfig;
 pub use context::RuntimeContext;
 pub use event::{Event, EventBus, EventFilter, EventHandler, EventKind};

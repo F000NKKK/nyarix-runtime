@@ -357,6 +357,36 @@ mod tests {
     }
 
     #[test]
+    fn a_context_with_no_capabilities_attached_grants_nothing() {
+        let ctx = RuntimeContext::empty();
+        assert_eq!(ctx.granted_capabilities(), CapabilityMask::empty());
+    }
+
+    #[test]
+    fn with_granted_capabilities_is_reflected_back() {
+        let mask = CapabilityMask::from_capabilities(&[crate::capability::Capability::Network]);
+        let ctx = RuntimeContext::empty().with_granted_capabilities(mask);
+        assert_eq!(ctx.granted_capabilities(), mask);
+    }
+
+    #[test]
+    fn request_capabilities_reports_what_the_context_was_granted() {
+        use crate::capability::Capability;
+
+        let mask = CapabilityMask::from_capabilities(&[Capability::Network]);
+        let ctx = RuntimeContext::empty().with_granted_capabilities(mask);
+        let metadata = support::new_metadata("quic-transport")
+            .with_required_capabilities(vec![Capability::Network, Capability::Tun]);
+
+        let grant = ctx.request_capabilities(&metadata);
+
+        assert!(!grant.is_fully_granted());
+        assert!(grant.has(Capability::Network));
+        assert!(!grant.has(Capability::Tun));
+        assert_eq!(grant.denied, vec![Capability::Tun]);
+    }
+
+    #[test]
     fn emit_event_does_not_panic_without_a_bus() {
         let ctx = RuntimeContext::empty();
         ctx.emit_event(Event::new("test_event"));
