@@ -115,6 +115,21 @@ impl NodeQueueReceiver {
         self.bulk.try_recv().ok()
     }
 
+    /// Total packets currently buffered across all three lanes (#97) —
+    /// the real, live number behind [`nyarix_module_api::Node::input_queue_depth`]
+    /// once a node's `NodeQueue` is what actually carries its input,
+    /// as opposed to whatever constant a module reports on its own.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.control.len() + self.interactive.len() + self.bulk.len()
+    }
+
+    /// Whether every lane is currently empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Drain every currently-queued packet across all three lanes
     /// (control first, then interactive, then bulk), without waiting for
     /// more to arrive. Used during graceful shutdown to hand off or
