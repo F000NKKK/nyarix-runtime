@@ -5,7 +5,8 @@ use std::io::{Cursor, Read};
 use nyarix_error::PackageError;
 
 use crate::manifest::PackageManifest;
-use crate::{PackageMember, validate_layout};
+use crate::signing::{self, SigningKey, PUBLIC_KEY_MEMBER_PATH, SIGNATURE_MEMBER_PATH};
+use crate::{validate_layout, PackageMember};
 
 fn io_error(source: std::io::Error) -> PackageError {
     PackageError::Io {
@@ -36,6 +37,22 @@ impl PackageBuilder {
     pub fn add_file(mut self, path: impl Into<String>, contents: impl Into<Vec<u8>>) -> Self {
         self.entries.push((path.into(), contents.into()));
         self
+    }
+
+    /// Sign every file added so far with `signing_key` (#61), and add
+    /// the resulting signature and its public key as two new members
+    /// ([`SIGNATURE_MEMBER_PATH`], [`PUBLIC_KEY_MEMBER_PATH`]).
+    ///
+    /// Call this after adding every other file and before [`Self::build`]
+    /// — anything added after signing isn't covered by the signature.
+    #[must_use]
+    pub fn sign(self, signing_key: &SigningKey) -> Self {
+        let signature = signing::sign(&self.entries, signing_key);
+        self.add_file(SIGNATURE_MEMBER_PATH, signature.to_bytes().to_vec())
+            .add_file(
+                PUBLIC_KEY_MEMBER_PATH,
+                signing_key.verifying_key().to_bytes().to_vec(),
+            )
     }
 
     /// Build the archive: `tar` all added files, then `zstd`-compress the
