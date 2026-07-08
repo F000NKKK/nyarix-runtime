@@ -145,9 +145,8 @@ mod tests {
 
     #[test]
     fn a_module_with_a_fully_granted_capability_set_instantiates() {
-        let ctx = RuntimeContext::empty().with_granted_capabilities(
-            CapabilityMask::from_capabilities(&[Capability::Network]),
-        );
+        let ctx = RuntimeContext::empty()
+            .with_granted_capabilities(CapabilityMask::from_capabilities(&[Capability::Network]));
         let module: Box<dyn Module> = Box::new(StubModule::requiring(vec![Capability::Network]));
 
         let instance = enforce_and_instantiate(module, &ctx).unwrap();
@@ -185,9 +184,8 @@ mod tests {
 
     #[test]
     fn a_partially_granted_module_is_still_refused_entirely() {
-        let ctx = RuntimeContext::empty().with_granted_capabilities(
-            CapabilityMask::from_capabilities(&[Capability::Network]),
-        );
+        let ctx = RuntimeContext::empty()
+            .with_granted_capabilities(CapabilityMask::from_capabilities(&[Capability::Network]));
         let module: Box<dyn Module> = Box::new(StubModule::requiring(vec![
             Capability::Network,
             Capability::Tun,
