@@ -10,16 +10,18 @@
 //! **Scope note:** this crate defines the format's *structural contract*
 //! ([`validate_layout`]), parses `manifest.toml` ([`manifest::PackageManifest`],
 //! #59), packs/unpacks the archive itself ([`archive::PackageBuilder`]/
-//! [`archive::PackageReader`], #60), and signs it with Ed25519
-//! ([`signing`], #61). It deliberately does **not** implement automatic
-//! signature verification during loading, or trust levels for which
-//! public keys to accept (#62/#63) — those build on top of what's here.
+//! [`archive::PackageReader`], #60), signs it with Ed25519 ([`signing`],
+//! #61), and checks a package's embedded signature on load
+//! ([`archive::PackageReader::signature_status`]/`require_valid_signature`,
+//! #62). It deliberately does **not** implement trust levels for which
+//! public keys to actually accept (#63) — `signature_status` only proves
+//! a signature is valid, not that its key is trusted.
 
 pub mod archive;
 pub mod manifest;
 pub mod signing;
 
-pub use archive::{PackageBuilder, PackageReader};
+pub use archive::{PackageBuilder, PackageReader, SignatureStatus};
 pub use manifest::{Capabilities, PackageInfo, PackageManifest, Platforms};
 pub use signing::{Signature, SignatureVerificationFailed, SigningKey, VerifyingKey};
 

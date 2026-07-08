@@ -173,6 +173,108 @@ impl PackageReader {
         }
         Ok(None)
     }
+
+    /// Read every member's path and raw bytes.
+    ///
+    /// Unlike [`Self::read_entry`], this does materialize the whole
+    /// archive in memory — it's what [`Self::signature_status`] (#62)
+    /// needs, since a signature covers every other member.
+    ///
+    /// # Errors
+    /// Returns [`PackageError::Io`] if the archive can't be re-scanned.
+    pub fn entries(&self) -> Result<Vec<(String, Vec<u8>)>, PackageError> {
+        let mut archive = tar::Archive::new(Cursor::new(self.tar_bytes.as_slice()));
+        let mut entries = Vec::new();
+        for entry in archive.entries().map_err(io_error)? {
+            let mut entry = entry.map_err(io_error)?;
+            let path = entry
+                .path()
+                .map_err(io_error)?
+                .to_string_lossy()
+                .into_owned();
+            let mut buf = Vec::new();
+            entry.read_to_end(&mut buf).map_err(io_error)?;
+            entries.push((path, buf));
+        }
+        Ok(entries)
+    }
+
+    /// Check this package's embedded Ed25519 signature (#61), if any.
+    ///
+    /// This only checks that the signature — if present — verifies
+    /// against the public key bundled alongside it; it does **not**
+    /// decide whether that key should be trusted (Trust levels, #63).
+    ///
+    /// # Errors
+    /// Returns [`PackageError::Io`] if the archive can't be re-scanned.
+    pub fn signature_status(&self) -> Result<SignatureStatus, PackageError> {
+        let entries = self.entries()?;
+        let signature_bytes = entries
+            .iter()
+            .find(|(path, _)| path == signing::SIGNATURE_MEMBER_PATH)
+            .map(|(_, contents)| contents);
+        let public_key_bytes = entries
+            .iter()
+            .find(|(path, _)| path == signing::PUBLIC_KEY_MEMBER_PATH)
+            .map(|(_, contents)| contents);
+
+        let (Some(signature_bytes), Some(public_key_bytes)) = (signature_bytes, public_key_bytes)
+        else {
+            return Ok(SignatureStatus::Unsigned);
+        };
+
+        let Ok(signature_bytes): Result<[u8; 64], _> = signature_bytes.as_slice().try_into()
+        else {
+            return Ok(SignatureStatus::Invalid);
+        };
+        let Ok(public_key_bytes): Result<[u8; 32], _> = public_key_bytes.as_slice().try_into()
+        else {
+            return Ok(SignatureStatus::Invalid);
+        };
+        let signature = signing::Signature::from_bytes(&signature_bytes);
+        let Ok(public_key) = signing::VerifyingKey::from_bytes(&public_key_bytes) else {
+            return Ok(SignatureStatus::Invalid);
+        };
+
+        Ok(
+            match signing::verify(&entries, &signature, &public_key) {
+                Ok(()) => SignatureStatus::Verified,
+                Err(signing::SignatureVerificationFailed) => SignatureStatus::Invalid,
+            },
+        )
+    }
+
+    /// Require this package to carry a signature that verifies —
+    /// "production: enforce" strict mode (#62). "dev: skip" is simply
+    /// not calling this and relying on [`Self::open`] alone; there's no
+    /// separate mode flag here because the decision belongs to whatever
+    /// configuration the Runtime reads, not this crate.
+    ///
+    /// # Errors
+    /// Returns [`PackageError::SignatureFailure`] if the package is
+    /// unsigned or its signature doesn't verify.
+    pub fn require_valid_signature(&self) -> Result<(), PackageError> {
+        match self.signature_status()? {
+            SignatureStatus::Verified => Ok(()),
+            SignatureStatus::Unsigned | SignatureStatus::Invalid => {
+                Err(PackageError::SignatureFailure {
+                    package: self.manifest.package.name.clone(),
+                })
+            }
+        }
+    }
+}
+
+/// The outcome of checking a package's embedded signature (see
+/// [`PackageReader::signature_status`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SignatureStatus {
+    /// No `signatures/ed25519.sig`/`signatures/ed25519.pub` pair present.
+    Unsigned,
+    /// Present, and the signature verifies against the bundled public key.
+    Verified,
+    /// Present, but malformed or doesn't verify (tampered, wrong key).
+    Invalid,
 }
 
 #[cfg(test)]
@@ -304,5 +406,94 @@ description = "UDP transport"
         ];
 
         assert!(signing::verify(&entries, &signature, &public_key).is_ok());
+    }
+
+    #[test]
+    fn an_unsigned_package_reports_unsigned() {
+        let data = PackageBuilder::new()
+            .add_file("manifest.toml", MANIFEST.as_bytes())
+            .build()
+            .unwrap();
+
+        let reader = PackageReader::open(&data).unwrap();
+
+        assert_eq!(reader.signature_status().unwrap(), SignatureStatus::Unsigned);
+        assert!(reader.require_valid_signature().is_err());
+    }
+
+    #[test]
+    fn a_validly_signed_package_reports_verified() {
+        let signing_key = signing::generate_keypair();
+        let data = PackageBuilder::new()
+            .add_file("manifest.toml", MANIFEST.as_bytes())
+            .add_file("payload/module.wasm", b"fake wasm".as_slice())
+            .sign(&signing_key)
+            .build()
+            .unwrap();
+
+        let reader = PackageReader::open(&data).unwrap();
+
+        assert_eq!(reader.signature_status().unwrap(), SignatureStatus::Verified);
+        assert!(reader.require_valid_signature().is_ok());
+    }
+
+    #[test]
+    fn a_package_signed_by_a_different_key_reports_invalid() {
+        let signing_key = signing::generate_keypair();
+        let other_key = signing::generate_keypair();
+
+        let signature = signing::sign(
+            &[
+                ("manifest.toml".to_string(), MANIFEST.as_bytes().to_vec()),
+                (
+                    "payload/module.wasm".to_string(),
+                    b"fake wasm".to_vec(),
+                ),
+            ],
+            &signing_key,
+        );
+        let data = PackageBuilder::new()
+            .add_file("manifest.toml", MANIFEST.as_bytes())
+            .add_file("payload/module.wasm", b"fake wasm".as_slice())
+            .add_file(SIGNATURE_MEMBER_PATH, signature.to_bytes().to_vec())
+            .add_file(
+                PUBLIC_KEY_MEMBER_PATH,
+                other_key.verifying_key().to_bytes().to_vec(),
+            )
+            .build()
+            .unwrap();
+
+        let reader = PackageReader::open(&data).unwrap();
+
+        assert_eq!(reader.signature_status().unwrap(), SignatureStatus::Invalid);
+        assert!(reader.require_valid_signature().is_err());
+    }
+
+    #[test]
+    fn a_tampered_package_reports_invalid() {
+        let signing_key = signing::generate_keypair();
+        let data = PackageBuilder::new()
+            .add_file("manifest.toml", MANIFEST.as_bytes())
+            .add_file("payload/module.wasm", b"original wasm".as_slice())
+            .sign(&signing_key)
+            .build()
+            .unwrap();
+
+        // Simulate tampering after signing: reopen, then rebuild with
+        // altered payload but the same (now-stale) signature/public key.
+        let reader = PackageReader::open(&data).unwrap();
+        let signature_bytes = reader.read_entry(SIGNATURE_MEMBER_PATH).unwrap().unwrap();
+        let public_key_bytes = reader.read_entry(PUBLIC_KEY_MEMBER_PATH).unwrap().unwrap();
+
+        let tampered = PackageBuilder::new()
+            .add_file("manifest.toml", MANIFEST.as_bytes())
+            .add_file("payload/module.wasm", b"tampered wasm".as_slice())
+            .add_file(SIGNATURE_MEMBER_PATH, signature_bytes)
+            .add_file(PUBLIC_KEY_MEMBER_PATH, public_key_bytes)
+            .build()
+            .unwrap();
+
+        let reader = PackageReader::open(&tampered).unwrap();
+        assert_eq!(reader.signature_status().unwrap(), SignatureStatus::Invalid);
     }
 }
