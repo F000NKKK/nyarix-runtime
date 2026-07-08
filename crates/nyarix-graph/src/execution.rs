@@ -1215,6 +1215,101 @@ mod tests {
         assert_eq!(results.len(), 1);
     }
 
+    /// A minimal `Aggregator` (#96): absorbs every branch but the last
+    /// it's waiting for (`Ok(None)`), then emits a merged packet on the
+    /// final one (`Ok(Some(_))`) — proving the execution engine needs
+    /// no special support for converging branches, per
+    /// [`nyarix_module_api::NodeType::Aggregator`]'s docs.
+    struct StubAggregator {
+        metadata: ModuleMetadata,
+        expected: usize,
+        received: usize,
+    }
+
+    impl StubAggregator {
+        fn waiting_for(expected: usize) -> Self {
+            Self {
+                metadata: ModuleMetadata::new(
+                    "aggregator",
+                    semver::Version::new(0, 1, 0),
+                    ModuleType::Flow,
+                ),
+                expected,
+                received: 0,
+            }
+        }
+    }
+
+    impl Module for StubAggregator {
+        fn metadata(&self) -> &ModuleMetadata {
+            &self.metadata
+        }
+        fn initialize(&mut self, _ctx: &RuntimeContext) -> Result<(), ModuleError> {
+            Ok(())
+        }
+        fn process(&mut self, packet: Packet) -> Result<Option<Packet>, ModuleError> {
+            self.received += 1;
+            if self.received < self.expected {
+                Ok(None)
+            } else {
+                Ok(Some(packet))
+            }
+        }
+        fn shutdown(&mut self, _ctx: &RuntimeContext) -> Result<(), ModuleError> {
+            Ok(())
+        }
+        fn health(&self) -> Health {
+            Health::Healthy
+        }
+    }
+
+    impl Node for StubAggregator {
+        fn node_type(&self) -> NodeType {
+            NodeType::Aggregator
+        }
+        fn input_queue_depth(&self) -> usize {
+            0
+        }
+        fn output_connections(&self) -> &[NodeId] {
+            &[]
+        }
+    }
+
+    #[tokio::test]
+    async fn two_parallel_branches_converging_on_one_aggregator_emit_once() {
+        let mut graph = FlowGraph::new();
+        let source = node(StubNode::new("source", NodeType::Source));
+        let branch_a = node(StubNode::new("branch-a", NodeType::Transformer));
+        let branch_b = node(StubNode::new("branch-b", NodeType::Transformer));
+        let aggregator: Arc<dyn Node> = Arc::new(StubAggregator::waiting_for(2));
+        let aggregator = GraphNode::new(NodeId::new(), aggregator, NodeConfig::default());
+        let (src, ba, bb, agg) = (source.id(), branch_a.id(), branch_b.id(), aggregator.id());
+        graph.add_node(source);
+        graph.add_node(branch_a);
+        graph.add_node(branch_b);
+        graph.add_node(aggregator);
+        graph.mark_exit_point(agg);
+
+        let (e1, _rx1) = crate::edge::Edge::new(src, ba, EdgeType::Parallel, None, 8);
+        let (e2, _rx2) = crate::edge::Edge::new(src, bb, EdgeType::Parallel, None, 8);
+        // Both branches converge on the same downstream node.
+        let (e3, _rx3) = crate::edge::Edge::new(ba, agg, EdgeType::Sequential, None, 8);
+        let (e4, _rx4) = crate::edge::Edge::new(bb, agg, EdgeType::Sequential, None, 8);
+        graph.connect(e1).unwrap();
+        graph.connect(e2).unwrap();
+        graph.connect(e3).unwrap();
+        graph.connect(e4).unwrap();
+
+        let results =
+            execute_parallel(shared(graph), src, Packet::new(b"data".as_slice()), 4, None)
+                .await
+                .unwrap();
+
+        // One branch's call absorbed (Ok(None), still waiting for the
+        // second); the other's completed the set and emitted once.
+        assert_eq!(results.len(), 1);
+    }
+
     #[tokio::test]
     async fn zero_max_concurrency_is_clamped_to_one() {
         let mut graph = FlowGraph::new();
