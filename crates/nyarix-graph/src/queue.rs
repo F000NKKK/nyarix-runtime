@@ -1,13 +1,14 @@
 //! Per-node priority queue (see issue #36).
 //!
-//! **Scope note:** this is the queue primitive as specified — bounded,
-//! priority-aware, drainable — as a standalone, tested unit. It is not
-//! yet wired into [`crate::execution`]: `execute_sequential`/
-//! `execute_parallel` (#32/#33) still route packets directly through
-//! [`crate::edge::Edge`]'s own per-edge channel. Replacing that with one
-//! shared `NodeQueue` per node (so multiple incoming edges feed the same
-//! prioritized queue) is a structural wiring change that belongs with the
-//! Scheduler (M4), which decides how nodes are actually driven.
+//! Wired into [`crate::execution`] (#97): every [`crate::node::GraphNode`]
+//! owns one, and both `execute_sequential`/`execute_parallel` (#32/#33)
+//! route each hop through it — enqueue via [`NodeQueueSender`], then
+//! dequeue with priority ([`NodeQueueReceiver::try_recv_prioritized`]/
+//! [`NodeQueueReceiver::recv`]) — instead of calling `Module::process`
+//! directly on whatever packet the walker happened to be holding. See
+//! [`crate::execution`]'s module docs for why [`crate::edge::Edge`]'s
+//! own per-edge channel is untouched by this (it was already unused by
+//! execution before #97, and stays that way).
 
 use nyarix_packet::{Packet, Tags};
 use tokio::sync::mpsc;
@@ -93,6 +94,25 @@ impl NodeQueueReceiver {
             packet = self.interactive.recv() => packet,
             packet = self.bulk.recv() => packet,
         }
+    }
+
+    /// Try to receive the next packet without waiting, preferring
+    /// control over interactive over bulk (the same biased order as
+    /// [`Self::recv`], but synchronous — for callers that can't
+    /// `.await`, e.g. [`crate::execution::execute_sequential`], #97).
+    ///
+    /// Returns `None` if every lane is currently empty (not
+    /// necessarily closed — unlike `recv`, this doesn't distinguish
+    /// "nothing right now" from "never again").
+    #[must_use]
+    pub fn try_recv_prioritized(&mut self) -> Option<Packet> {
+        if let Ok(packet) = self.control.try_recv() {
+            return Some(packet);
+        }
+        if let Ok(packet) = self.interactive.try_recv() {
+            return Some(packet);
+        }
+        self.bulk.try_recv().ok()
     }
 
     /// Drain every currently-queued packet across all three lanes
@@ -187,6 +207,19 @@ mod tests {
         assert!(drained[0].has_tag(Tag::Control));
         assert!(drained[1].has_tag(Tag::Interactive));
         assert!(drained[2].has_tag(Tag::Bulk));
+    }
+
+    #[test]
+    fn try_recv_prioritized_prefers_control_over_interactive_and_bulk() {
+        let (tx, mut rx) = node_queue(8);
+        tx.try_send(tagged(Tag::Bulk)).unwrap();
+        tx.try_send(tagged(Tag::Interactive)).unwrap();
+        tx.try_send(tagged(Tag::Control)).unwrap();
+
+        assert!(rx.try_recv_prioritized().unwrap().has_tag(Tag::Control));
+        assert!(rx.try_recv_prioritized().unwrap().has_tag(Tag::Interactive));
+        assert!(rx.try_recv_prioritized().unwrap().has_tag(Tag::Bulk));
+        assert!(rx.try_recv_prioritized().is_none());
     }
 
     #[tokio::test]

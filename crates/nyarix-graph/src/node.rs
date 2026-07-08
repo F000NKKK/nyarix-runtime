@@ -8,6 +8,7 @@ use nyarix_module_api::{ModuleConfig, Node, NodeType};
 use serde::{Deserialize, Serialize};
 
 use crate::metrics::NodeMetrics;
+use crate::queue::{NodeQueueReceiver, NodeQueueSender, node_queue};
 
 /// The lifecycle state of a graph node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
