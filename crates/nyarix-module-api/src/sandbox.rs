@@ -10,6 +10,14 @@
 //!   module (the bullet's parenthetical alternative) is a heavier
 //!   design than this workspace's single-runtime execution model
 //!   currently assumes — not attempted here.
+//!
+//!   **Caveat:** [`crate::context::RuntimeContext`] is still one shared
+//!   instance for a whole execution loop run (`nyarix_runtime::execution_loop`),
+//!   not one per node/module — so today every node in a run sees the
+//!   same [`SandboxHandle`]/token until something actually builds a
+//!   `RuntimeContext` per node, which is #95's decision to make, not
+//!   this one's. `SandboxHandle::isolated` exists so that wiring, once
+//!   #95 lands, doesn't need a new primitive invented alongside it.
 //! - **"Ограничение доступа к глобальному состоянию"**: nothing to add
 //!   — this workspace has no global mutable state for a module to reach
 //!   in the first place. A module only ever sees what

@@ -309,9 +309,9 @@ impl RuntimeContext {
         self.platform
     }
 
-    /// Handle for sandbox interaction.
-    ///
-    /// Currently a no-op placeholder — see [`SandboxHandle`] docs (M7).
+    /// Handle for sandbox interaction (#75) — currently just this
+    /// module's own cancellation token, see [`SandboxHandle`] docs for
+    /// what's implemented vs. still a marker.
     #[must_use]
     pub fn sandbox(&self) -> &SandboxHandle {
         &self.sandbox
