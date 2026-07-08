@@ -31,7 +31,7 @@ pub use fallback::{Resolution, resolve};
 pub use health::Health;
 pub use io_policy::{FilesystemPolicy, NetworkPolicy};
 pub use metadata::{ModuleMetadata, ModuleType};
-pub use metrics::MetricsHandle;
+pub use metrics::{Counter, Gauge, Histogram, HistogramSnapshot, MetricRegistry, MetricsHandle};
 pub use module::{Module, Result};
 pub use node::{Node, NodeType};
 pub use platform::Platform;
