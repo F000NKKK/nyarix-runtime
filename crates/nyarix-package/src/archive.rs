@@ -277,4 +277,32 @@ description = "UDP transport"
             b"pretend-signature"
         );
     }
+
+    #[test]
+    fn a_signed_package_embeds_a_verifiable_signature_and_public_key() {
+        let signing_key = signing::generate_keypair();
+        let data = PackageBuilder::new()
+            .add_file("manifest.toml", MANIFEST.as_bytes())
+            .add_file("payload/module.wasm", b"fake wasm".as_slice())
+            .sign(&signing_key)
+            .build()
+            .unwrap();
+
+        let reader = PackageReader::open(&data).unwrap();
+        let signature_bytes = reader.read_entry(SIGNATURE_MEMBER_PATH).unwrap().unwrap();
+        let public_key_bytes = reader.read_entry(PUBLIC_KEY_MEMBER_PATH).unwrap().unwrap();
+
+        let signature = signing::Signature::from_slice(&signature_bytes).unwrap();
+        let public_key =
+            signing::VerifyingKey::from_bytes(&public_key_bytes.try_into().unwrap()).unwrap();
+
+        let manifest_bytes = reader.read_entry("manifest.toml").unwrap().unwrap();
+        let payload_bytes = reader.read_entry("payload/module.wasm").unwrap().unwrap();
+        let entries = vec![
+            ("manifest.toml".to_string(), manifest_bytes),
+            ("payload/module.wasm".to_string(), payload_bytes),
+        ];
+
+        assert!(signing::verify(&entries, &signature, &public_key).is_ok());
+    }
 }

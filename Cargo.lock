@@ -443,6 +443,7 @@ dependencies = [
  "semver",
  "serde",
  "tar",
+ "thiserror",
  "toml",
  "zstd",
 ]
