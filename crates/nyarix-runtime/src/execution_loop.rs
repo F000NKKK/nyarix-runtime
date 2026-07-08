@@ -369,6 +369,7 @@ mod tests {
             source_rx,
             sink_tx,
             shutdown.clone(),
+            GraphPauseWatcher::always_resumed(),
         ));
 
         let pkt = Packet::new(b"hello".as_slice());
@@ -407,6 +408,7 @@ mod tests {
             source_rx,
             sink_tx,
             shutdown,
+            GraphPauseWatcher::always_resumed(),
         ));
 
         drop(source_tx);
@@ -454,6 +456,7 @@ mod tests {
             sink_tx,
             shutdown,
             Duration::from_secs(5),
+            GraphPauseWatcher::always_resumed(),
         )
         .await
         .unwrap();
