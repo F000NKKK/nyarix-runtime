@@ -244,4 +244,48 @@ mod tests {
         let bit_count = combined.bits().count_ones();
         assert_eq!(bit_count as usize, Capability::ALL.len());
     }
+
+    #[test]
+    fn a_request_fully_within_the_granted_mask_is_fully_granted() {
+        let granted =
+            CapabilityMask::from_capabilities(&[Capability::Network, Capability::Crypto]);
+        let request = CapabilityGrant::request(&[Capability::Network], granted);
+
+        assert!(request.is_fully_granted());
+        assert!(request.has(Capability::Network));
+        assert!(request.denied.is_empty());
+    }
+
+    #[test]
+    fn a_request_beyond_the_granted_mask_lists_what_was_denied() {
+        let granted = CapabilityMask::from_capabilities(&[Capability::Network]);
+        let request =
+            CapabilityGrant::request(&[Capability::Network, Capability::Tun], granted);
+
+        assert!(!request.is_fully_granted());
+        assert!(request.has(Capability::Network));
+        assert!(!request.has(Capability::Tun));
+        assert_eq!(request.denied, vec![Capability::Tun]);
+    }
+
+    #[test]
+    fn granted_mask_never_exceeds_what_was_requested() {
+        // Granted has Crypto too, but it wasn't requested, so it
+        // shouldn't show up in the resulting grant.
+        let granted =
+            CapabilityMask::from_capabilities(&[Capability::Network, Capability::Crypto]);
+        let request = CapabilityGrant::request(&[Capability::Network], granted);
+
+        assert_eq!(
+            request.granted,
+            CapabilityMask::from_capabilities(&[Capability::Network])
+        );
+        assert!(!request.granted.has(Capability::Crypto));
+    }
+
+    #[test]
+    fn requesting_nothing_is_trivially_fully_granted() {
+        let request = CapabilityGrant::request(&[], CapabilityMask::empty());
+        assert!(request.is_fully_granted());
+    }
 }
