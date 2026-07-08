@@ -66,6 +66,42 @@ pub enum Event {
         /// The new health status.
         health: Health,
     },
+    /// A key rotation started for a session.
+    RekeyStarted {
+        /// The session undergoing rekey.
+        session_id: SessionId,
+    },
+    /// A key rotation completed for a session.
+    RekeyCompleted {
+        /// The session whose rekey completed.
+        session_id: SessionId,
+    },
+    /// A configuration profile was applied.
+    ProfileApplied {
+        /// The applied profile's name.
+        profile: String,
+    },
+    /// A module's health dropped from [`Health::Healthy`] to
+    /// [`Health::Degraded`]/[`Health::Unhealthy`].
+    ///
+    /// Distinct from [`Self::HealthChanged`] (#24's general "health is
+    /// now X" notification, which also fires on recovery): this and
+    /// [`Self::HealthRestored`] are specifically the negative/positive
+    /// *transition* edges, which is what this issue asks for as its own
+    /// pair of events — for a subscriber that only cares about "did
+    /// something just get worse/better", not every health reading.
+    HealthDegraded {
+        /// The module whose health degraded.
+        module: String,
+        /// The new (degraded) health status.
+        health: Health,
+    },
+    /// A module's health recovered to [`Health::Healthy`] after
+    /// previously being degraded — see [`Self::HealthDegraded`].
+    HealthRestored {
+        /// The module whose health recovered.
+        module: String,
+    },
     /// A Runtime/package/profile update is available.
     UpdateAvailable {
         /// The available version.
@@ -103,6 +139,16 @@ pub enum EventKind {
     TransportSwitched,
     /// See [`Event::HealthChanged`].
     HealthChanged,
+    /// See [`Event::RekeyStarted`].
+    RekeyStarted,
+    /// See [`Event::RekeyCompleted`].
+    RekeyCompleted,
+    /// See [`Event::ProfileApplied`].
+    ProfileApplied,
+    /// See [`Event::HealthDegraded`].
+    HealthDegraded,
+    /// See [`Event::HealthRestored`].
+    HealthRestored,
     /// See [`Event::UpdateAvailable`].
     UpdateAvailable,
     /// See [`Event::Custom`].
@@ -133,6 +179,11 @@ impl Event {
             Self::PacketDropped { .. } => EventKind::PacketDropped,
             Self::TransportSwitched { .. } => EventKind::TransportSwitched,
             Self::HealthChanged { .. } => EventKind::HealthChanged,
+            Self::RekeyStarted { .. } => EventKind::RekeyStarted,
+            Self::RekeyCompleted { .. } => EventKind::RekeyCompleted,
+            Self::ProfileApplied { .. } => EventKind::ProfileApplied,
+            Self::HealthDegraded { .. } => EventKind::HealthDegraded,
+            Self::HealthRestored { .. } => EventKind::HealthRestored,
             Self::UpdateAvailable { .. } => EventKind::UpdateAvailable,
             Self::Custom { .. } => EventKind::Custom,
         }
@@ -311,5 +362,87 @@ mod tests {
                 name: "rekey_started".to_string()
             }
         );
+    }
+
+    #[test]
+    fn rekey_events_carry_the_session_id_and_the_right_kind() {
+        let session_id = SessionId::new();
+        assert_eq!(
+            Event::RekeyStarted { session_id }.kind(),
+            EventKind::RekeyStarted
+        );
+        assert_eq!(
+            Event::RekeyCompleted { session_id }.kind(),
+            EventKind::RekeyCompleted
+        );
+    }
+
+    #[test]
+    fn profile_applied_carries_the_profile_name() {
+        let event = Event::ProfileApplied {
+            profile: "stealth".to_string(),
+        };
+        assert_eq!(event.kind(), EventKind::ProfileApplied);
+        assert_eq!(
+            event,
+            Event::ProfileApplied {
+                profile: "stealth".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn health_degraded_and_restored_are_distinct_from_health_changed() {
+        let degraded = Event::HealthDegraded {
+            module: "quic".to_string(),
+            health: Health::Degraded {
+                reason: "high latency".to_string(),
+            },
+        };
+        let restored = Event::HealthRestored {
+            module: "quic".to_string(),
+        };
+        let changed = Event::HealthChanged {
+            module: "quic".to_string(),
+            health: Health::Degraded {
+                reason: "high latency".to_string(),
+            },
+        };
+
+        assert_eq!(degraded.kind(), EventKind::HealthDegraded);
+        assert_eq!(restored.kind(), EventKind::HealthRestored);
+        assert_eq!(changed.kind(), EventKind::HealthChanged);
+        assert_ne!(degraded.kind(), changed.kind());
+    }
+
+    #[tokio::test]
+    async fn a_filter_for_health_degraded_does_not_match_health_restored() {
+        let bus = EventBus::default();
+        let received: Arc<Mutex<Vec<Event>>> = Arc::new(Mutex::new(Vec::new()));
+        let received_clone = Arc::clone(&received);
+
+        let handle = bus.subscribe(
+            EventFilter::Only(vec![EventKind::HealthDegraded]),
+            move |event| {
+                received_clone.lock().unwrap().push(event);
+            },
+        );
+
+        bus.publish(Event::HealthRestored {
+            module: "quic".to_string(),
+        });
+        bus.publish(Event::HealthDegraded {
+            module: "quic".to_string(),
+            health: Health::Unhealthy {
+                reason: "connection lost".to_string(),
+            },
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        let received = received.lock().unwrap();
+        assert_eq!(received.len(), 1);
+        assert_eq!(received[0].kind(), EventKind::HealthDegraded);
+        handle.abort();
     }
 }
