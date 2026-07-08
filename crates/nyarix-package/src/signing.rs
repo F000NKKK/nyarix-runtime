@@ -7,7 +7,7 @@
 //! - a `nyarix sign` CLI binary (the issue's last bullet) — this
 //!   workspace has no CLI/argument-parsing dependency (`clap` or
 //!   similar) and no existing CLI binary to model one on; adding both
-//!   for a single subcommand is its own scope, tracked in #108;
+//!   for a single subcommand is its own scope, tracked in #110;
 //! - checking a signature automatically while *loading* a package, or
 //!   trust levels for whose public key to accept (#62/#63) — this
 //!   module only proves a signature is valid for a given public key,
