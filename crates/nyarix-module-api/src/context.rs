@@ -6,8 +6,10 @@ use std::sync::{Arc, Mutex};
 
 use tokio::task::JoinHandle;
 
+use crate::capability::{CapabilityGrant, CapabilityMask};
 use crate::config::ModuleConfig;
 use crate::event::{Event, EventBus, EventFilter, EventHandler};
+use crate::metadata::ModuleMetadata;
 use crate::metrics::MetricsHandle;
 use crate::module::Module;
 use crate::platform::Platform;
@@ -22,6 +24,7 @@ pub struct RuntimeContext {
     dependencies: HashMap<String, Arc<dyn Module>>,
     event_bus: Option<Arc<EventBus>>,
     subscriptions: Mutex<Vec<JoinHandle<()>>>,
+    granted_capabilities: CapabilityMask,
 }
 
 impl RuntimeContext {
@@ -42,6 +45,7 @@ impl RuntimeContext {
             dependencies: HashMap::new(),
             event_bus: None,
             subscriptions: Mutex::new(Vec::new()),
+            granted_capabilities: CapabilityMask::empty(),
         }
     }
 
@@ -58,6 +62,7 @@ impl RuntimeContext {
             dependencies,
             event_bus: None,
             subscriptions: Mutex::new(Vec::new()),
+            granted_capabilities: CapabilityMask::empty(),
         }
     }
 
@@ -78,7 +83,42 @@ impl RuntimeContext {
             dependencies,
             event_bus: Some(event_bus),
             subscriptions: Mutex::new(Vec::new()),
+            granted_capabilities: CapabilityMask::empty(),
         }
+    }
+
+    /// Attach a granted capability mask to this context (#70) — the
+    /// Runtime calls this (typically right after building the context,
+    /// before handing it to a module's `initialize`) with whatever its
+    /// security policy decided this module gets. Defaults to
+    /// [`CapabilityMask::empty()`] on every other constructor, meaning
+    /// "granted nothing" rather than "granted everything" — a module
+    /// this wasn't set on can't accidentally pass a capability check.
+    #[must_use]
+    pub fn with_granted_capabilities(mut self, granted: CapabilityMask) -> Self {
+        self.granted_capabilities = granted;
+        self
+    }
+
+    /// The capability mask the Runtime granted this module (#70), set
+    /// via [`Self::with_granted_capabilities`] — [`CapabilityMask::empty()`]
+    /// if never set.
+    #[must_use]
+    pub fn granted_capabilities(&self) -> CapabilityMask {
+        self.granted_capabilities
+    }
+
+    /// Check `metadata.required_capabilities` (#21) against
+    /// [`Self::granted_capabilities`] and report which are actually
+    /// granted vs. denied by the Runtime's current policy (#70).
+    ///
+    /// This only computes the grant — it doesn't reject or fail a
+    /// module for an incomplete one; deciding what to do about a
+    /// [`CapabilityGrant`] that isn't fully granted (block the module?
+    /// let it run degraded?) is Runtime enforcement's job (#73/#74).
+    #[must_use]
+    pub fn request_capabilities(&self, metadata: &ModuleMetadata) -> CapabilityGrant {
+        CapabilityGrant::request(&metadata.required_capabilities, self.granted_capabilities)
     }
 
     /// This module's configuration.

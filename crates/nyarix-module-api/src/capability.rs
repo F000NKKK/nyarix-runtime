@@ -6,12 +6,15 @@
 //! and package manifests. [`CapabilityMask`] is the corresponding bitmask,
 //! for O(1) checks once a module is loaded.
 //!
-//! **Out of scope here:** actually granting/denying capabilities at
-//! runtime, and enforcing them (killing/degrading a module that oversteps)
-//! — that's the Sandbox (M7, see #69 Capability model design, #70
-//! Capability request system, #73 Runtime enforcement, #74 Denied
-//! capability handling). This issue is only the declaration model those
-//! will consume.
+//! [`CapabilityGrant`]/[`CapabilityGrant::request`] (#70) computes which
+//! of a module's required capabilities the Runtime's policy actually
+//! grants — [`crate::context::RuntimeContext::request_capabilities`] is
+//! the module-facing entry point.
+//!
+//! **Still out of scope here:** *enforcing* the result (killing/degrading
+//! a module that didn't get everything it asked for) — that's #73
+//! (Runtime enforcement) and #74 (denied capability handling); this
+//! only decides what's granted, not what happens if it's incomplete.
 
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
@@ -142,6 +145,50 @@ impl CapabilityMask {
     #[must_use]
     pub fn satisfies(self, required: Self) -> bool {
         self.contains(required)
+    }
+}
+
+/// The result of a module requesting its capabilities from the Runtime
+/// (#70): which of what it asked for it actually got, and which were
+/// denied by the current security policy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CapabilityGrant {
+    /// The capabilities actually granted — always a subset of what was
+    /// requested, never more.
+    pub granted: CapabilityMask,
+    /// Requested capabilities the policy did not grant, in the order
+    /// they were requested.
+    pub denied: Vec<Capability>,
+}
+
+impl CapabilityGrant {
+    /// Compute a [`CapabilityGrant`] for `required` against `granted` —
+    /// the Runtime's policy result for this module, already reduced to
+    /// a single mask by whatever produced `granted` (the policy engine
+    /// itself, #73, isn't this function's concern).
+    #[must_use]
+    pub fn request(required: &[Capability], granted: CapabilityMask) -> Self {
+        let denied = required
+            .iter()
+            .copied()
+            .filter(|capability| !granted.has(*capability))
+            .collect();
+        Self {
+            granted: CapabilityMask::from_capabilities(required) & granted,
+            denied,
+        }
+    }
+
+    /// Whether every requested capability was granted.
+    #[must_use]
+    pub fn is_fully_granted(&self) -> bool {
+        self.denied.is_empty()
+    }
+
+    /// Whether `capability` specifically was granted.
+    #[must_use]
+    pub fn has(&self, capability: Capability) -> bool {
+        self.granted.has(capability)
     }
 }
 

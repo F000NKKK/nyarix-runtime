@@ -157,7 +157,7 @@ mod tests {
             }
             Ok(())
         }
-
+        
         fn supports_migration(&self) -> bool {
             self.migratable
         }
