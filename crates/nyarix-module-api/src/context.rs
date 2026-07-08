@@ -371,12 +371,9 @@ mod tests {
     }
 
     impl EventHandler for RecordingHandler {
-        fn handle(&mut self, event: Event) -> impl Future<Output = ()> + Send {
-            let received = Arc::clone(&self.received);
-            async move {
-                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-                received.lock().unwrap().push(event);
-            }
+        async fn handle(&mut self, event: Event) {
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+            self.received.lock().unwrap().push(event);
         }
     }
 

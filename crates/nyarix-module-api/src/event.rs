@@ -508,13 +508,10 @@ mod tests {
     }
 
     impl EventHandler for RecordingHandler {
-        fn handle(&mut self, event: Event) -> impl Future<Output = ()> + Send {
-            let received = Arc::clone(&self.received);
-            async move {
-                // Prove the handler genuinely awaits something.
-                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-                received.lock().unwrap().push(event);
-            }
+        async fn handle(&mut self, event: Event) {
+            // Prove the handler genuinely awaits something.
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+            self.received.lock().unwrap().push(event);
         }
     }
 
@@ -541,11 +538,9 @@ mod tests {
     struct HangingHandler;
 
     impl EventHandler for HangingHandler {
-        fn handle(&mut self, _event: Event) -> impl Future<Output = ()> + Send {
-            async move {
-                // Never completes on its own within the test's timeout.
-                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
-            }
+        async fn handle(&mut self, _event: Event) {
+            // Never completes on its own within the test's timeout.
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         }
     }
 
