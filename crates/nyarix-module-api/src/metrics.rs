@@ -476,7 +476,10 @@ mod tests {
             .histogram("quic", "process_duration_us", vec![1.0])
             .observe(0.5);
 
-        assert_eq!(registry.get_gauge("quic", "queue_depth").unwrap().value(), 5);
+        assert_eq!(
+            registry.get_gauge("quic", "queue_depth").unwrap().value(),
+            5
+        );
         assert_eq!(
             registry
                 .get_histogram("quic", "process_duration_us")

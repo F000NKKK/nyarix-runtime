@@ -13,7 +13,7 @@ use std::collections::HashSet;
 
 use nyarix_core::NodeId;
 use nyarix_module_api::{MetricRegistry, NodeType};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::edge::EdgeType;
 use crate::graph::FlowGraph;
@@ -22,7 +22,7 @@ use crate::node::NodeState;
 /// A snapshot of #82's per-node metrics for one node, if a
 /// [`MetricRegistry`] was attached to [`export_graph`] and it has
 /// recorded anything for that node yet.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NodeMetricsExport {
     /// See #82's `process_calls_total`.
     pub process_calls_total: u64,
@@ -33,7 +33,7 @@ pub struct NodeMetricsExport {
 }
 
 /// One node in a [`GraphExport`].
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NodeExport {
     /// The node's [`NodeId`], as a string (DOT/JSON both want a plain
     /// identifier, not a typed one).
@@ -54,7 +54,7 @@ pub struct NodeExport {
 }
 
 /// One edge in a [`GraphExport`].
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EdgeExport {
     /// Source node id.
     pub from: String,
@@ -70,7 +70,7 @@ pub struct EdgeExport {
 
 /// A full snapshot of a [`FlowGraph`]'s nodes and edges, ready to
 /// render as DOT or JSON.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GraphExport {
     /// Every node in the graph.
     pub nodes: Vec<NodeExport>,
@@ -219,8 +219,8 @@ mod tests {
     }
 
     impl Node for StubNode {
-        fn node_type(&self) -> nyarix_module_api::NodeType {
-            nyarix_module_api::NodeType::Transformer
+        fn node_type(&self) -> NodeType {
+            NodeType::Transformer
         }
         fn input_queue_depth(&self) -> usize {
             0
@@ -267,8 +267,16 @@ mod tests {
         let (graph, a_id, b_id) = linear_graph();
         let export = export_graph(&graph, None);
 
-        let a = export.nodes.iter().find(|n| n.id == a_id.to_string()).unwrap();
-        let b = export.nodes.iter().find(|n| n.id == b_id.to_string()).unwrap();
+        let a = export
+            .nodes
+            .iter()
+            .find(|n| n.id == a_id.to_string())
+            .unwrap();
+        let b = export
+            .nodes
+            .iter()
+            .find(|n| n.id == b_id.to_string())
+            .unwrap();
         assert!(a.is_entry);
         assert!(!a.is_exit);
         assert!(b.is_exit);
