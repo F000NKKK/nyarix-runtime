@@ -15,7 +15,6 @@
 
 pub use ed25519_dalek::{Signature, SigningKey, VerifyingKey};
 use ed25519_dalek::{Signer, Verifier};
-use rand_core::OsRng;
 
 /// The path a package's Ed25519 signature is stored at within the
 /// archive (#61).
@@ -34,7 +33,7 @@ pub const PUBLIC_KEY_MEMBER_PATH: &str = "signatures/ed25519.pub";
 /// Generate a new Ed25519 keypair using the OS's secure random source.
 #[must_use]
 pub fn generate_keypair() -> SigningKey {
-    SigningKey::generate(&mut OsRng)
+    SigningKey::generate(&mut rand::rng())
 }
 
 /// Compute the deterministic bytes a package's signature covers.

@@ -57,6 +57,7 @@ tar = "0.4"
 zstd = "0.13"
 ed25519-dalek = "3"
 rand_core = "0.10"
+rand = "0.10"
 
 # --- Dev dependencies ---
 criterion = "0.8"
