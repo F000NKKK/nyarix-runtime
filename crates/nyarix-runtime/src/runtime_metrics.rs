@@ -168,7 +168,7 @@ mod tests {
 
     impl Node for StubNode {
         fn node_type(&self) -> NodeType {
-            NodeType::Flow
+            NodeType::Transformer
         }
         fn input_queue_depth(&self) -> usize {
             0
