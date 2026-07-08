@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use tokio::task::JoinHandle;
 
 use crate::config::ModuleConfig;
-use crate::event::{Event, EventBus, EventFilter};
+use crate::event::{Event, EventBus, EventFilter, EventHandler};
 use crate::metrics::MetricsHandle;
 use crate::module::Module;
 use crate::platform::Platform;
@@ -137,8 +137,39 @@ impl RuntimeContext {
         true
     }
 
-    /// Abort every subscription registered through [`Self::on_event`] on
-    /// this context.
+    /// Subscribe with an async [`EventHandler`] (#72) instead of a sync
+    /// closure — see [`EventBus::subscribe_async`] for what
+    /// `handler_timeout` guards against. Tracked in the same
+    /// subscription list as [`Self::on_event`], so
+    /// [`Self::cancel_subscriptions`] aborts both kinds uniformly.
+    ///
+    /// Returns `false` (and subscribes nothing) if this context has no
+    /// [`EventBus`] attached, same as [`Self::on_event`].
+    pub fn on_event_async<H>(
+        &self,
+        filter: EventFilter,
+        handler: H,
+        handler_timeout: std::time::Duration,
+    ) -> bool
+    where
+        H: EventHandler + Send + 'static,
+    {
+        let Some(bus) = &self.event_bus else {
+            tracing::debug!(
+                "on_event_async called with no EventBus attached; ignoring subscription"
+            );
+            return false;
+        };
+        let handle = bus.subscribe_async(filter, handler, handler_timeout);
+        self.subscriptions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(handle);
+        true
+    }
+
+    /// Abort every subscription registered through [`Self::on_event`] or
+    /// [`Self::on_event_async`] on this context.
     ///
     /// The Runtime calls this after a module's `shutdown()` completes, so
     /// a module doesn't need to unsubscribe by hand — see [`Self::on_event`].

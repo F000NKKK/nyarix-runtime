@@ -262,6 +262,63 @@ impl EventBus {
             }
         })
     }
+
+    /// Subscribe with an async [`EventHandler`] (#72) instead of a sync
+    /// closure ([`Self::subscribe`]) — for handling that itself needs to
+    /// `.await` (I/O, another service call, ...) without blocking on it
+    /// synchronously inside a plain closure.
+    ///
+    /// Runs on its own spawned task, same as [`Self::subscribe`], so a
+    /// slow handler never blocks event *delivery* to other subscribers
+    /// or the publisher — but it could still block delivery to *this*
+    /// subscriber indefinitely if it never returns, which is exactly
+    /// what `handler_timeout` guards against: each call to
+    /// [`EventHandler::handle`] is wrapped in [`tokio::time::timeout`],
+    /// and a timed-out call is logged and skipped rather than left to
+    /// hang forever.
+    ///
+    /// Returns a [`tokio::task::JoinHandle`] — drop or `.abort()` it to
+    /// stop the subscription, same as [`Self::subscribe`].
+    pub fn subscribe_async<H>(
+        &self,
+        filter: EventFilter,
+        mut handler: H,
+        handler_timeout: std::time::Duration,
+    ) -> tokio::task::JoinHandle<()>
+    where
+        H: EventHandler + Send + 'static,
+    {
+        let mut receiver = self.sender.subscribe();
+        tokio::spawn(async move {
+            loop {
+                match receiver.recv().await {
+                    Ok(event) => {
+                        if filter.matches(&event) {
+                            let kind = event.kind();
+                            if tokio::time::timeout(handler_timeout, handler.handle(event))
+                                .await
+                                .is_err()
+                            {
+                                tracing::warn!(?kind, "event handler timed out");
+                            }
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        })
+    }
+}
+
+/// An async handler for events delivered by an [`EventBus`] (#72).
+///
+/// Unlike the sync closure [`EventBus::subscribe`] takes, `handle` can
+/// itself `.await` — the whole point of this trait over a plain
+/// `FnMut(Event)`.
+pub trait EventHandler: Send {
+    /// Handle one event.
+    fn handle(&mut self, event: Event) -> impl std::future::Future<Output = ()> + Send;
 }
 
 impl Default for EventBus {
