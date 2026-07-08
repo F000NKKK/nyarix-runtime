@@ -153,10 +153,23 @@ pub fn load_modules(
                         validation,
                     });
                 } else {
+                    tracing::warn!(
+                        path = %path.display(),
+                        conflicts = validation.conflicts.len(),
+                        platform_supported = validation.platform_supported,
+                        "skipping module: failed validation"
+                    );
                     report.invalid.push(RejectedPackage { path, validation });
                 }
             }
-            Err(error) => report.errors.push(ScanError { path, error }),
+            Err(error) => {
+                tracing::warn!(
+                    path = %path.display(),
+                    error = %error,
+                    "skipping module: failed to open package"
+                );
+                report.errors.push(ScanError { path, error });
+            }
         }
     }
 
