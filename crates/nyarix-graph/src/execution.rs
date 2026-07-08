@@ -37,7 +37,14 @@ use crate::node::GraphNode;
 /// (microseconds to low milliseconds) and the occasional slow node
 /// hitting its CPU budget (#77, up to whole seconds).
 const PROCESS_DURATION_BUCKETS_US: [f64; 8] = [
-    50.0, 100.0, 500.0, 1_000.0, 5_000.0, 10_000.0, 100_000.0, 1_000_000.0,
+    50.0,
+    100.0,
+    500.0,
+    1_000.0,
+    5_000.0,
+    10_000.0,
+    100_000.0,
+    1_000_000.0,
 ];
 
 /// Error produced while executing a packet through the graph.
@@ -153,7 +160,9 @@ fn record_node_metrics(
             PROCESS_DURATION_BUCKETS_US.to_vec(),
         )
         .observe(elapsed.as_micros() as f64);
-    metrics.gauge(name, "queue_depth").set(i64::try_from(node.module().input_queue_depth()).unwrap_or(i64::MAX));
+    metrics
+        .gauge(name, "queue_depth")
+        .set(i64::try_from(node.module().input_queue_depth()).unwrap_or(i64::MAX));
     if !succeeded {
         metrics.counter(name, "errors_total").increment(1);
     }
@@ -545,7 +554,8 @@ mod tests {
         graph.connect(ab).unwrap();
         graph.connect(bc).unwrap();
 
-        let result = execute_sequential(&mut graph, a_id, Packet::new(b"data".as_slice()), None).unwrap();
+        let result =
+            execute_sequential(&mut graph, a_id, Packet::new(b"data".as_slice()), None).unwrap();
         assert!(result.is_none());
     }
 
@@ -595,7 +605,12 @@ mod tests {
         graph.mark_exit_point(a_id);
         graph.add_node(a);
 
-        let result = execute_sequential(&mut graph, a_id, Packet::new(b"way too big".as_slice()), None);
+        let result = execute_sequential(
+            &mut graph,
+            a_id,
+            Packet::new(b"way too big".as_slice()),
+            None,
+        );
 
         let Err(ExecutionError::Module(ModuleError::QuotaExceeded { name, resource })) = result
         else {
@@ -800,9 +815,10 @@ mod tests {
         graph.connect(e3).unwrap();
         graph.connect(e4).unwrap();
 
-        let results = execute_parallel(shared(graph), src, Packet::new(b"data".as_slice()), 4, None)
-            .await
-            .unwrap();
+        let results =
+            execute_parallel(shared(graph), src, Packet::new(b"data".as_slice()), 4, None)
+                .await
+                .unwrap();
         assert_eq!(results.len(), 2);
     }
 
@@ -826,9 +842,10 @@ mod tests {
         graph.connect(e2).unwrap();
         graph.connect(e3).unwrap();
 
-        let results = execute_parallel(shared(graph), src, Packet::new(b"data".as_slice()), 4, None)
-            .await
-            .unwrap();
+        let results =
+            execute_parallel(shared(graph), src, Packet::new(b"data".as_slice()), 4, None)
+                .await
+                .unwrap();
         // Only the surviving branch contributes a result.
         assert_eq!(results.len(), 1);
     }
@@ -850,9 +867,10 @@ mod tests {
         graph.connect(e2).unwrap();
 
         // max_concurrent_branches = 0 must not deadlock; it's clamped to 1.
-        let results = execute_parallel(shared(graph), src, Packet::new(b"data".as_slice()), 0, None)
-            .await
-            .unwrap();
+        let results =
+            execute_parallel(shared(graph), src, Packet::new(b"data".as_slice()), 0, None)
+                .await
+                .unwrap();
         assert_eq!(results.len(), 2);
     }
 
@@ -863,8 +881,14 @@ mod tests {
         let a_id = a.id();
         graph.add_node(a);
 
-        let result =
-            execute_parallel(shared(graph), a_id, Packet::new(b"data".as_slice()), 4, None).await;
+        let result = execute_parallel(
+            shared(graph),
+            a_id,
+            Packet::new(b"data".as_slice()),
+            4,
+            None,
+        )
+        .await;
         assert!(matches!(
             result,
             Err(ExecutionError::Graph(GraphError::MissingNode { .. }))
