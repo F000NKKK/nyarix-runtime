@@ -264,4 +264,13 @@ mod tests {
         meta.ttl = 0;
         assert!(meta.is_expired());
     }
+
+    #[test]
+    fn created_at_is_set_at_packet_creation() {
+        let before = Instant::now();
+        let meta = Metadata::new();
+        let after = Instant::now();
+        assert!(meta.created_at >= before);
+        assert!(meta.created_at <= after);
+    }
 }

@@ -972,6 +972,25 @@ mod tests {
         assert_eq!(metrics.counter("flow", "packets_dropped").value(), 1);
     }
 
+    #[test]
+    fn throughput_tracker_is_called_on_each_execution() {
+        let mut graph = FlowGraph::new();
+        let a = node(StubNode::new("source", NodeType::Source));
+        let a_id = a.id();
+        graph.mark_exit_point(a_id);
+        graph.add_node(a);
+
+        let mut tracker = ThroughputTracker::new();
+        let pkt = Packet::new(b"hello".as_slice());
+        let flow_id = pkt.metadata().flow_id;
+
+        let result = execute_sequential(&mut graph, a_id, pkt, None, Some(&mut tracker)).unwrap();
+        assert!(result.is_some());
+
+        // The tracker should have recorded 5 bytes for this flow.
+        assert_eq!(tracker.flow_throughput(flow_id) > 0.0, true);
+    }
+
     fn shared(graph: FlowGraph) -> Arc<tokio::sync::Mutex<FlowGraph>> {
         Arc::new(tokio::sync::Mutex::new(graph))
     }
