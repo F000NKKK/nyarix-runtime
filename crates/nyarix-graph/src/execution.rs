@@ -665,6 +665,107 @@ mod tests {
         assert_eq!(result.unwrap().id(), id);
     }
 
+    #[test]
+    fn per_node_metrics_are_recorded_when_a_registry_is_attached() {
+        let mut graph = FlowGraph::new();
+        let a = node(StubNode::new("source", NodeType::Source));
+        let a_id = a.id();
+        graph.mark_exit_point(a_id);
+        graph.add_node(a);
+
+        let metrics = MetricRegistry::new();
+        let result = execute_sequential(
+            &mut graph,
+            a_id,
+            Packet::new(b"data".as_slice()),
+            Some(&metrics),
+        )
+        .unwrap();
+        assert!(result.is_some());
+
+        assert_eq!(metrics.counter("source", "process_calls_total").value(), 1);
+        assert_eq!(metrics.counter("source", "errors_total").value(), 0);
+        assert_eq!(metrics.gauge("source", "queue_depth").value(), 0);
+        assert_eq!(
+            metrics
+                .histogram("source", "process_duration_us", vec![])
+                .snapshot()
+                .count,
+            1
+        );
+    }
+
+    #[test]
+    fn per_node_metrics_count_errors_when_process_fails() {
+        struct FailingNode {
+            metadata: ModuleMetadata,
+        }
+
+        impl Module for FailingNode {
+            fn metadata(&self) -> &ModuleMetadata {
+                &self.metadata
+            }
+
+            fn initialize(&mut self, _ctx: &RuntimeContext) -> Result<(), ModuleError> {
+                Ok(())
+            }
+
+            fn process(&mut self, _packet: Packet) -> Result<Option<Packet>, ModuleError> {
+                Err(ModuleError::Crashed {
+                    name: "failing".to_string(),
+                    reason: "boom".to_string(),
+                })
+            }
+
+            fn shutdown(&mut self, _ctx: &RuntimeContext) -> Result<(), ModuleError> {
+                Ok(())
+            }
+
+            fn health(&self) -> Health {
+                Health::Healthy
+            }
+        }
+
+        impl Node for FailingNode {
+            fn node_type(&self) -> NodeType {
+                NodeType::Source
+            }
+
+            fn input_queue_depth(&self) -> usize {
+                0
+            }
+
+            fn output_connections(&self) -> &[NodeId] {
+                &[]
+            }
+        }
+
+        let mut graph = FlowGraph::new();
+        let module: Arc<dyn Node> = Arc::new(FailingNode {
+            metadata: ModuleMetadata::new(
+                "failing",
+                semver::Version::new(0, 1, 0),
+                ModuleType::Flow,
+            ),
+        });
+        let a = GraphNode::new(NodeId::new(), module, NodeConfig::default());
+        let a_id = a.id();
+        graph.mark_exit_point(a_id);
+        graph.add_node(a);
+
+        let metrics = MetricRegistry::new();
+        let result = execute_sequential(
+            &mut graph,
+            a_id,
+            Packet::new(b"data".as_slice()),
+            Some(&metrics),
+        );
+        assert!(result.is_err());
+
+        assert_eq!(metrics.counter("failing", "process_calls_total").value(), 1);
+        assert_eq!(metrics.counter("failing", "errors_total").value(), 1);
+    }
+
     fn shared(graph: FlowGraph) -> Arc<tokio::sync::Mutex<FlowGraph>> {
         Arc::new(tokio::sync::Mutex::new(graph))
     }
