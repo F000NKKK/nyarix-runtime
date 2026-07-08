@@ -365,4 +365,66 @@ mod tests {
 
         assert!(received.lock().unwrap().is_empty());
     }
+
+    struct RecordingHandler {
+        received: Arc<Mutex<Vec<Event>>>,
+    }
+
+    impl EventHandler for RecordingHandler {
+        fn handle(&mut self, event: Event) -> impl Future<Output = ()> + Send {
+            let received = Arc::clone(&self.received);
+            async move {
+                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                received.lock().unwrap().push(event);
+            }
+        }
+    }
+
+    #[test]
+    fn on_event_async_returns_false_without_a_bus() {
+        let ctx = RuntimeContext::empty();
+        let handler = RecordingHandler {
+            received: Arc::new(Mutex::new(Vec::new())),
+        };
+        assert!(!ctx.on_event_async(EventFilter::All, handler, std::time::Duration::from_secs(1)));
+    }
+
+    #[tokio::test]
+    async fn on_event_async_reaches_a_subscriber_through_the_attached_bus() {
+        let bus = Arc::new(EventBus::default());
+        let ctx = RuntimeContext::with_event_bus(ModuleConfig::empty(), HashMap::new(), bus);
+
+        let received: Arc<Mutex<Vec<Event>>> = Arc::new(Mutex::new(Vec::new()));
+        let handler = RecordingHandler {
+            received: Arc::clone(&received),
+        };
+        let subscribed =
+            ctx.on_event_async(EventFilter::All, handler, std::time::Duration::from_secs(1));
+        assert!(subscribed);
+
+        ctx.emit_event(Event::new("rekey_started"));
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+        assert_eq!(received.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn cancel_subscriptions_stops_delivery_to_async_handlers_too() {
+        let bus = Arc::new(EventBus::default());
+        let ctx = RuntimeContext::with_event_bus(ModuleConfig::empty(), HashMap::new(), bus);
+
+        let received: Arc<Mutex<Vec<Event>>> = Arc::new(Mutex::new(Vec::new()));
+        let handler = RecordingHandler {
+            received: Arc::clone(&received),
+        };
+        ctx.on_event_async(EventFilter::All, handler, std::time::Duration::from_secs(1));
+
+        ctx.cancel_subscriptions();
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        ctx.emit_event(Event::new("after_cancel"));
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+        assert!(received.lock().unwrap().is_empty());
+    }
 }

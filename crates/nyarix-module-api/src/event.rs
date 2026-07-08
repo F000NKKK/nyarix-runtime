@@ -318,7 +318,7 @@ impl EventBus {
 /// `FnMut(Event)`.
 pub trait EventHandler: Send {
     /// Handle one event.
-    fn handle(&mut self, event: Event) -> impl std::future::Future<Output = ()> + Send;
+    fn handle(&mut self, event: Event) -> impl Future<Output = ()> + Send;
 }
 
 impl Default for EventBus {
@@ -508,7 +508,7 @@ mod tests {
     }
 
     impl EventHandler for RecordingHandler {
-        fn handle(&mut self, event: Event) -> impl std::future::Future<Output = ()> + Send {
+        fn handle(&mut self, event: Event) -> impl Future<Output = ()> + Send {
             let received = Arc::clone(&self.received);
             async move {
                 // Prove the handler genuinely awaits something.
@@ -526,11 +526,8 @@ mod tests {
             received: Arc::clone(&received),
         };
 
-        let handle = bus.subscribe_async(
-            EventFilter::All,
-            handler,
-            std::time::Duration::from_secs(1),
-        );
+        let handle =
+            bus.subscribe_async(EventFilter::All, handler, std::time::Duration::from_secs(1));
 
         bus.publish(Event::ModuleLoaded {
             name: "quic".to_string(),
@@ -544,7 +541,7 @@ mod tests {
     struct HangingHandler;
 
     impl EventHandler for HangingHandler {
-        fn handle(&mut self, _event: Event) -> impl std::future::Future<Output = ()> + Send {
+        fn handle(&mut self, _event: Event) -> impl Future<Output = ()> + Send {
             async move {
                 // Never completes on its own within the test's timeout.
                 tokio::time::sleep(std::time::Duration::from_secs(60)).await;
