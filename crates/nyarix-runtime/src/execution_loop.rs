@@ -77,6 +77,12 @@ pub async fn initialize_all_nodes(
 /// nodes leaking resources just because an earlier one errored. Returns
 /// the first error encountered, if any, after every node has had a
 /// chance to shut down.
+///
+/// Before calling `shutdown` on a node, drains whatever's still sitting
+/// in its own input queue (#97) — packets enqueued but not yet
+/// dequeued/processed when shutdown started (e.g. a concurrent branch
+/// that lost the race to a sibling at a converging node, #96) are
+/// logged and discarded rather than silently leaked.
 pub async fn shutdown_all_nodes(
     graph: &Arc<Mutex<FlowGraph>>,
     ctx: &RuntimeContext,
@@ -86,6 +92,14 @@ pub async fn shutdown_all_nodes(
     let mut first_error = None;
     for id in ids {
         if let Some(node) = guard.node_mut(id) {
+            let leftover = node.queue_receiver_mut().drain();
+            if !leftover.is_empty() {
+                tracing::warn!(
+                    node_id = %id,
+                    count = leftover.len(),
+                    "discarding packets still queued at shutdown"
+                );
+            }
             if let Err(error) = node.shutdown(ctx) {
                 tracing::warn!(%error, node_id = %id, "node failed to shut down cleanly");
                 if first_error.is_none() {

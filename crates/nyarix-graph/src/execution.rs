@@ -383,9 +383,12 @@ async fn walk_node(
         node.queue_sender()
     };
     packet.metadata_mut().record_hop(current);
-    sender.send(packet).await.map_err(|_| GraphError::BuildFailed {
-        reason: format!("node {current} input queue closed"),
-    })?;
+    sender
+        .send(packet)
+        .await
+        .map_err(|_| GraphError::BuildFailed {
+            reason: format!("node {current} input queue closed"),
+        })?;
 
     // Step 2: re-lock, dequeue with priority, and process. This always
     // resolves without waiting — a packet was just enqueued into this
@@ -881,6 +884,43 @@ mod tests {
         };
         assert_eq!(name, "limited");
         assert_eq!(resource, "payload_size");
+    }
+
+    #[test]
+    fn a_full_node_queue_reports_backpressure_instead_of_processing() {
+        let module: Arc<dyn Node> = Arc::new(StubNode::new("bottleneck", NodeType::Source));
+        let a = GraphNode::new(
+            NodeId::new(),
+            module,
+            NodeConfig {
+                module_config: nyarix_module_api::ModuleConfig::empty(),
+                queue_capacity: 1,
+            },
+        );
+        let a_id = a.id();
+        // Fill the node's single-slot queue (all three lanes get their
+        // own slot, so fill the bulk lane an untagged packet lands in)
+        // before the walker gets a chance to enqueue its own.
+        a.queue_sender()
+            .try_send(Packet::new(b"already queued".as_slice()))
+            .unwrap();
+
+        let mut graph = FlowGraph::new();
+        graph.mark_exit_point(a_id);
+        graph.add_node(a);
+
+        let result = execute_sequential(
+            &mut graph,
+            a_id,
+            Packet::new(b"data".as_slice()),
+            None,
+            None,
+        );
+
+        let Err(ExecutionError::Graph(GraphError::BuildFailed { reason })) = result else {
+            panic!("expected BuildFailed from a full queue, got {result:?}");
+        };
+        assert!(reason.contains("input queue is full"));
     }
 
     #[test]
